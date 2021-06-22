@@ -71,15 +71,16 @@ def parse_contents(contents, filename, date):
             dcc.Graph(
                 figure=fig),
             dcc.Dropdown(
+                id='dropdown_tags',
                 options=[
                     {'label': 'Arc', 'value': 'Arc'},
                     {'label': 'Peaks', 'value': 'Peaks'},
                     {'label': 'Rings', 'value': 'Rings'},
                     {'label': 'Rods', 'value': 'Rods'}],
-                multi=True),
-            html.Button(
-                id='save-labels',
-                children='Save Labels to Disk'),
+                multi=True,
+                placeholder="Select Tags"),
+            html.Button(id='save-labels', children='Save Labels to Disk'),
+            html.Div(id='saved-response'),
 
             html.Hr(),  # horizontal line
 
@@ -103,6 +104,15 @@ def update_output(list_of_contents, list_of_names, list_of_dates):
         children = [
             parse_contents(c, n, d) for c, n, d in
             zip(list_of_contents, list_of_names, list_of_dates)]
+        return children
+
+
+@app.callback(Output('saved-response', 'children'),
+              Input('save-labels', 'n_clicks'),
+              State('dropdown_tags', 'value'))
+def save_labels(n_clicks, list_of_tags):
+    if n_clicks is not None and list_of_tags is not None:
+        children = [html.Div('Saved')]
         return children
 
 
