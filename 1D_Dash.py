@@ -1,6 +1,7 @@
 import base64
 import datetime
 import io
+import os
 
 import dash
 from dash.dependencies import Input, Output, State, MATCH
@@ -41,18 +42,31 @@ app.layout = html.Div([
 ])
 
 
+def parseXDI(csvFile):
+    # parse the csvFile as a file.  While it isn't actually a file, it's saved
+    # in memory so it can be accessed like one. The goal here is to find the
+    # '----' instance before the data so we can grab it for use in a graph
+
+    return None
+
+
 def parse_contents(contents, filename, date, index):
     content_type, content_string = contents.split(',')
 
     decoded = base64.b64decode(content_string)
     try:
+        # Different if statments to hopefully handel the files types needed
+        # when graphing 1D data
         if filename.endswith('.csv'):
-            # Assume that the user uploaded a CSV file
+            # The user uploaded a CSV file
             df = pd.read_csv(
                 io.StringIO(decoded.decode('utf-8')))
-            # Can't handle more than 1 column for graphing
-            if len(df.columns) > 1:
+            # Can't handle anything other than 3 columns for graphing
+            if len(df.columns) != 3:
                 raise
+        if filename.endswith('.xdi'):
+            # The user uploaded a XDI file
+            df = parseXDI(io.StringIO(decoded.decode('utf-8')))
 
     except Exception as e:
         print(e)
@@ -60,7 +74,7 @@ def parse_contents(contents, filename, date, index):
             'There was an error processing this file.'
         ])
 
-    fig = px.scatter(df)
+    fig = px.scatter(x=df.energy, y=df.mutrans/df.i0)
     fig.update_traces(mode='lines+markers')
 
     graphData = [
@@ -84,6 +98,9 @@ def parse_contents(contents, filename, date, index):
             html.Button(
                 id={'type': 'save-labels', 'index': index},
                 children='Save Labels to Disk'),
+            dcc.Download(id={
+                'type': 'download-csv-tags',
+                'index': index}),
             html.Div(id={'type': 'saved-response', 'index': index}),
 
             html.Hr(),  # horizontal line
@@ -116,22 +133,24 @@ def update_output(list_of_contents, list_of_names, list_of_dates):
 
 
 @app.callback(
-        Output({'type': 'saved-response', 'index': MATCH}, 'children'),
+        Output({'type': 'download-csv-tags', 'index': MATCH}, 'data'),
         Input({'type': 'save-labels', 'index': MATCH}, 'n_clicks'),
         State({'type': 'dropdown_tags', 'index': MATCH}, 'value'),
         State({'type': 'filename', 'index': MATCH}, 'children'),
         prevent_initial_call=True)
 def save_labels(n_clicks, list_of_tags, file_name):
-    if n_clicks is not None and list_of_tags is not None:
-        # getting rid of .csv from file name to add _tags.csv to end
-        tags_file = file_name[:-4]+'_tags.csv'
-        f = open("./data/tags/"+tags_file, "w")
-        for i in list_of_tags:
-            f.write(i+"\n")
-        f.close()
+    if n_clicks is not None:
+        if list_of_tags is not None:
+            # getting rid of .csv from file name to add _tags.csv to end
+            tags_file = file_name[:-4]+'_tags.csv'
+            f = open("./"+tags_file, "w")
+            for i in list_of_tags:
+                f.write(i+"\n")
+            f.close()
 
-        children = [html.Div('Saved as {}'.format(tags_file))]
-        return children
+            res = dcc.send_file('./'+tags_file)
+            os.remove('./'+tags_file)
+            return res
 
 
 if __name__ == '__main__':
