@@ -21,6 +21,7 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
+
 # Setting up initial webpage layout
 app.layout = html.Div([
         dcc.Upload(
@@ -43,9 +44,44 @@ app.layout = html.Div([
             children='Or',
             style={'textAlign': 'center'}),
         html.Div(
+            children=[
+                'Name: ',
+                dcc.Input(
+                    id='GET_name',
+                    placeholder='None',
+                    type='text'),
+                ' URI: ',
+                dcc.Input(
+                    id='GET_uri',
+                    placeholder='None',
+                    type='text'),
+                ' Tag: ',
+                dcc.Input(
+                    id='GET_tag',
+                    placeholder='None',
+                    type='text'),
+                ' Skip: ',
+                dcc.Input(
+                    id='GET_skip',
+                    value=0,
+                    min=0,
+                    placeholder='None',
+                    type='number'),
+                ' Limit: ',
+                dcc.Input(
+                    id='GET_limit',
+                    required=True,
+                    value=10,
+                    min=1,
+                    placeholder='None',
+                    type='number')],
+            style={
+                'lineHeight': '60px',
+                'textAlign': 'center'}),
+        html.Div(
             children=html.Button(
                 id='splash_ml_data',
-                children='Splash ML'),
+                children='Query Splash-ML'),
             style={'textAlign': 'center'}),
 
         html.Div(id='output_data_upload'),
@@ -55,13 +91,23 @@ app.layout = html.Div([
 # splash-ml GET request with default parameters.  parameters might be an option
 # to look into but currently splash just returns the first 10 datasets in the
 # database.
-def splash_GET_call():
-    url = 'http://127.0.0.1:8000/api/v0/datasets'
+def splash_GET_call(name, uri, tag, skip, limit):
+    url = 'http://127.0.0.1:8000/api/v0/datasets?'
+    if name:
+        url += ('&name='+name)
+    if uri:
+        url += ('&uri='+uri)
+    if tag:
+        url += ('&tag_value='+tag)
+    if skip:
+        url += ('&skip='+str(skip))
+    if limit:
+        url += ('&limit='+str(limit))
     response = urllib.request.urlopen(url)
     data = json.loads(response.read())
     file_info = []
     for i in data:
-        file_info.append((i['uri'], i['uid'], i['type']))
+        file_info.append((i['uri'], url, i['type']))
 
     return file_info
 
@@ -250,10 +296,15 @@ def update_output_local(list_of_contents, list_of_names, list_of_dates):
 @app.callback(
         Output('output_data_splash', 'children'),
         Input('splash_ml_data', 'n_clicks'),
+        State('GET_name', 'value'),
+        State('GET_uri', 'value'),
+        State('GET_tag', 'value'),
+        State('GET_skip', 'value'),
+        State('GET_limit', 'value'),
         prevent_initial_call=True)
-def update_output_splash(n_clicks):
+def update_output_splash(n_clicks, name, uri, tag, skip, limit):
     if n_clicks is not None:
-        file_info = splash_GET_call()
+        file_info = splash_GET_call(name, uri, tag, skip, limit)
         children = []
         for i in range(len(file_info)):
             if file_info[i][2] == 'file':
