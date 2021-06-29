@@ -7,12 +7,11 @@ import dash
 from dash.dependencies import Input, Output, State, MATCH
 import dash_core_components as dcc
 import dash_html_components as html
-# import dash_table
 
 import pandas as pd
 import plotly.express as px
-# import plotly.graph_objs as go
 
+# Imports for interacting with splash-ml api
 import urllib.request
 import requests
 import json
@@ -22,6 +21,7 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
+# Setting up initial webpage layout
 app.layout = html.Div([
         dcc.Upload(
             id='upload_data',
@@ -52,17 +52,22 @@ app.layout = html.Div([
         html.Div(id='output_data_splash')])
 
 
+# splash-ml GET request with default parameters.  parameters might be an option
+# to look into but currently splash just returns the first 10 datasets in the
+# database.
 def splash_GET_call():
     url = 'http://127.0.0.1:8000/api/v0/datasets'
     response = urllib.request.urlopen(url)
     data = json.loads(response.read())
     file_info = []
     for i in data:
-        file_info.append((i['uri'], i['uid']))
+        file_info.append((i['uri'], i['uid'], i['type']))
 
     return file_info
 
 
+# Takes tags applied to data along wtih the UID of the splash-ml dataset. With
+# those tags and UID it POSTS to the database with the api.
 def splash_POST_call(list_of_tags, uid):
     url = 'http://127.0.0.1:8000/api/v0/datasets/'+uid[5:]+'/tags'
     data = []
@@ -71,6 +76,7 @@ def splash_POST_call(list_of_tags, uid):
     return requests.post(url, json=data).status_code
 
 
+# Handles .xdi files and returns a dataframe of the data in it
 def parseXDI(csvFile):
     # parse the csvFile as a file.  While it isn't actually a file, it's saved
     # in memory so it can be accessed like one.
@@ -87,6 +93,8 @@ def parseXDI(csvFile):
     return pd.DataFrame(data, columns=last_header_line.split()[1:])
 
 
+# parsing splash-ml files found.  Changes download tags button to an upload
+# button that applies these tags to splash-ml
 def parse_splash_ml(contents, filename, uid, index):
 
     try:
@@ -108,6 +116,7 @@ def parse_splash_ml(contents, filename, uid, index):
             'There was an error processing this file.'
         ])
 
+    # Only handels df data that has columns of energy, itrans, and i0
     fig = px.scatter(x=df.energy, y=df.itrans/df.i0)
     fig.update_traces(mode='lines+markers')
 
@@ -139,6 +148,7 @@ def parse_splash_ml(contents, filename, uid, index):
     return html.Div(graphData)
 
 
+# Parsing uploaded files to display graphically on the website
 def parse_contents(contents, filename, date, index):
     content_type, content_string = contents.split(',')
 
@@ -163,6 +173,7 @@ def parse_contents(contents, filename, date, index):
             'There was an error processing this file.'
         ])
 
+    # Only handels df data that has columns of energy, itrans, and i0
     fig = px.scatter(x=df.energy, y=df.itrans/df.i0)
     fig.update_traces(mode='lines+markers')
 
@@ -205,6 +216,8 @@ def parse_contents(contents, filename, date, index):
     return html.Div(graphData)
 
 
+# Takes the tags and converts them to a .csv format to save locally for the
+# user on the webpage
 def save_local_file(list_of_tags, file_name):
     # getting rid of .csv from file name to add _tags.csv to end
     tags_file = file_name[:-4]+'_tags.csv'
@@ -243,10 +256,18 @@ def update_output_splash(n_clicks):
         file_info = splash_GET_call()
         children = []
         for i in range(len(file_info)):
-            c = open(file_info[i][0], 'r')
-            n = file_info[i][0]
-            d = file_info[i][1]
-            children.append(parse_splash_ml(c, n, d, i))
+            if file_info[i][2] == 'file':
+                c = open(file_info[i][0], 'r')
+                n = file_info[i][0]
+                d = file_info[i][1]
+                children.append(parse_splash_ml(c, n, d, i))
+            elif file_info[i][2] == 'dbroker':
+                # grab file from dbroker, atm this doesnt exist though
+                print('work in progress')
+            elif file_info[i][2] == 'web':
+                # grab file from web??? this probably exists, not sure how to
+                # work this without splash-ml example
+                print('work in progress')
         return children
 
 
@@ -281,8 +302,9 @@ def save_no_tags(n_clicks, list_of_tags):
         prevent_initial_call=True)
 def upload_tags_button(n_clicks, list_of_tags, uid):
     if n_clicks and list_of_tags:
-        response = splash_POST_call(list_of_tags, uid)
-        return html.Div('Uploading Tags: '+str(response))
+        code_response = splash_POST_call(list_of_tags, uid)
+        # 200 for OK, 422 for validation error, 500 for server error
+        return html.Div('Uploading Tags: '+str(code_response))
     else:
         return html.Div('No Tags Selected')
 
