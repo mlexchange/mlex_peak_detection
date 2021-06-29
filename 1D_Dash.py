@@ -107,7 +107,7 @@ def splash_GET_call(name, uri, tag, skip, limit):
     data = json.loads(response.read())
     file_info = []
     for i in data:
-        file_info.append((i['uri'], url, i['type']))
+        file_info.append((i['uri'], i['uid'], i['type']))
 
     return file_info
 
@@ -169,7 +169,7 @@ def parse_splash_ml(contents, filename, uid, index):
     graphData = [
             html.H5(
                 id={'type': 'splash_location', 'index': index},
-                children=filename),
+                children='uri: '+filename),
             html.H6(
                 id={'type': 'splash_uid', 'index': index},
                 children='uid: '+uid),
