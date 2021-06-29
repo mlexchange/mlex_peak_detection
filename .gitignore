@@ -128,5 +128,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-#.csv data saved
+#.csv and .xdi data saved
 *.csv
+*.xdi
