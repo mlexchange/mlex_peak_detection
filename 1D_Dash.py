@@ -11,7 +11,7 @@ import dash_table
 
 import pandas as pd
 import plotly.express as px
-# import plotly.graph_objects as go
+import numpy as np
 
 # Imports for interacting with splash-ml api
 import urllib.request
@@ -22,6 +22,7 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
+# This needs to be changed, not sure what the annotation options are though
 ANNOTATION_OPTIONS = [
         {'label': 'Arc', 'value': 'Arc'},
         {'label': 'Rods', 'value': 'Rods'},
@@ -45,6 +46,8 @@ CONTENT_STYLE = {
         'margin-right': '2rem',
         'padding': '2rem 1rem'}
 
+# Sidebar content, this includes the titles with the splash-ml entry and query
+# button
 sidebar = html.Div(
         id='sidebar',
         children=[
@@ -78,7 +81,8 @@ sidebar = html.Div(
 
         style=SIDEBAR_STYLE)
 
-
+# Content section to the right of the sidebar.  This includes the upload bar
+# and graphs to be tagged once loaded into app.
 content = html.Div([
         dcc.Upload(
             id='upload_data',
@@ -137,12 +141,12 @@ def splash_PATCH_call(tag, uid, domain):
 
 
 # Handles .xdi files and returns a dataframe of the data in it
-def parseXDI(csvFile):
-    # parse the csvFile as a file.  While it isn't actually a file, it's saved
+def parseXDI(xdiFile):
+    # parse the xdiFile as a file.  While it isn't actually a file, it's saved
     # in memory so it can be accessed like one.
     last_header_line = None
     data = []
-    for line in csvFile.readlines():
+    for line in xdiFile.readlines():
         if line.startswith('#'):
             last_header_line = line
         else:
@@ -153,12 +157,11 @@ def parseXDI(csvFile):
     return pd.DataFrame(data, columns=last_header_line.split()[1:])
 
 
-# Handles the creation and format of the graph component in this webpage
+# Handles the creation and format of the graph component in this webpage.
+# Graphs 1D data so no formating is needed for the graph.  If there are
+# multiple lines in your graph, you are not using the right data
 def get_Graph(df, name, index):
-    fig = px.line(x=df.energy, y=df.itrans/df.i0,
-                  labels={
-                      'x': 'Energy',
-                      'y': 'iTrans/i0'})
+    fig = px.line(data_frame=df)
     fig.update_layout(
              xaxis=dict(
                 rangeslider=dict(
@@ -174,8 +177,7 @@ def get_Graph(df, name, index):
     return graph
 
 
-# parsing splash-ml files found.  Changes download tags button to an upload
-# button that applies these tags to splash-ml
+# parsing splash-ml files found.
 def parse_splash_ml(contents, filename, uid, tags, index):
 
     try:
@@ -190,6 +192,10 @@ def parse_splash_ml(contents, filename, uid, tags, index):
         if filename.endswith('.xdi'):
             # The user uploaded a XDI file
             df = parseXDI(contents)
+        if filename.endswith('.npy'):
+            # The user uploaded a numpy file
+            npyArr = np.load(contents)
+            df = pd.DataFrame({'Column1': npyArr[:, 0]})
 
     except Exception as e:
         print(e)
@@ -263,25 +269,32 @@ def parse_splash_ml(contents, filename, uid, tags, index):
 def parse_contents(contents, filename, date, index):
     content_type, content_string = contents.split(',')
 
+    npyArr = 'idk man'
     decoded = base64.b64decode(content_string)
-    content = io.StringIO(decoded.decode('utf-8'))
     try:
         # Different if statments to hopefully handel the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
+            content = io.StringIO(decoded.decode('utf-8'))
             # The user uploaded a CSV file
             df = pd.read_csv(content)
             # Can't handle anything other than 3 columns for graphing
             if len(df.columns) != 3:
                 raise
         if filename.endswith('.xdi'):
+            content = io.StringIO(decoded.decode('utf-8'))
             # The user uploaded a XDI file
             df = parseXDI(content)
+        if filename.endswith('.npy'):
+            # The user uploaded a numpy file
+            content = io.BytesIO(decoded)
+            npyArr = np.load(content)
+            df = pd.DataFrame({'Column1': npyArr})
 
     except Exception as e:
         print(e)
         return html.Div([
-            'There was an error processing this file.'
+            'There was an error processing this file. '+str(npyArr)
         ])
 
     # Only handels df data that has columns of energy, itrans, and i0
@@ -357,6 +370,8 @@ def save_local_file(rows_of_tags, file_name):
     return res
 
 
+# Combined the upload and splash-ml data graphs into one callback to simplify
+# the whole process
 @app.callback(
         Output('output_data_upload', 'children'),
         Output('upload_data', 'contents'),
@@ -407,6 +422,8 @@ def update_output(
     return children, [], 0
 
 
+# Tag callback for when the graph is from uploaded data.  Updates the tag table
+# and saves it in current session
 @app.callback(
         Output({'type': 'tag_table', 'index': MATCH}, 'data'),
         Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
@@ -426,6 +443,9 @@ def apply_tags_table(n_clicks, rows, tag, figure):
     return rows
 
 
+# Tag table callback for when the graph is from uploaded data.  Downloads the
+# tag table data into a csv file with format of tag,x1,x2 where x1 and x2 are
+# the domain of tag
 @app.callback(
         Output({'type': 'download_csv_tags', 'index': MATCH}, 'data'),
         Output({'type': 'saved_response', 'index': MATCH}, 'children'),
@@ -441,6 +461,10 @@ def save_tags_button(n_clicks, rows, file_name):
         return None, html.Div('No Tags Selected')
 
 
+# Uploads tag to splash-ml along with adding to the tag table.  Order of the
+# table and splash-ml might be different but that shouldn't matter for the
+# current usecase.  This can be fixed by not adding a new tag right to the
+# table and instead doing a GET call to grab the tag order from splash-ml
 @app.callback(
         Output({'type': 'splash_response', 'index': MATCH}, 'children'),
         Output({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
@@ -470,6 +494,8 @@ def upload_tags_button(n_clicks, rows, tag, uid, figure):
         return html.Div('No Tags Selected'), rows
 
 
+# Displays the current domain of graph.  Thinking about rounding the numbers to
+# int as the massive float number isnt too friendly to the user experience
 @app.callback(
         Output({'type': 'domain', 'index': MATCH}, 'children'),
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
