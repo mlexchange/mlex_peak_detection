@@ -194,8 +194,8 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             df = parseXDI(contents)
         if filename.endswith('.npy'):
             # The user uploaded a numpy file
-            npyArr = np.load(contents)
-            df = pd.DataFrame({'Column1': npyArr[:, 0]})
+            npyArr = np.load(filename)
+            df = pd.DataFrame({'Column1': npyArr})
 
     except Exception as e:
         print(e)
@@ -210,10 +210,16 @@ def parse_splash_ml(contents, filename, uid, tags, index):
 
     tags_data = []
     for i in tags:
-        x1 = i['locator'].split()[1][:-1]
-        x2 = (i['locator'].split())[2]
-        temp = dict(Tag=i['name'], Domain=str(x1+', '+x2))
-        tags_data.append(temp)
+        arr = i['locator'].split()
+
+        if len(arr) == 3:
+            x1 = arr[1][:-1]
+            x2 = arr[2]
+            temp = dict(Tag=i['name'], Domain=str(x1+', '+x2))
+            tags_data.append(temp)
+        else:
+            temp = dict(Tag=i['name'], Domain=str('None'))
+            tags_data.append(temp)
 
     graphData = [
             html.H5(
@@ -403,6 +409,7 @@ def update_output(
         file_info = splash_GET_call(uri, list_of_tags, offset, limit)
         children = []
         for i in range(len(file_info)):
+            children.append(html.Div('oi bruv'))
             f_type = file_info[i]['type']
             if f_type == 'file':
                 c = open(file_info[i]['uri'], 'r')
