@@ -318,7 +318,7 @@ def parse_contents(contents, filename, date, index):
                         placeholder='Select Tags'),
                     html.Button(
                         id={'type': 'apply_labels', 'index': index},
-                        children='Save Label to Table')],
+                        children='Add Tag')],
                 style={
                     'width': '30rem',
                     'padding': '3rem 3rem',
@@ -419,6 +419,8 @@ def update_output(
                 print('work in progress')
             else:
                 children.append(html.Div('Invalid file type from splash-ml'))
+    if len(children) == 0:
+        children.append(html.Div('No data found to graph'))
     return children, [], 0
 
 
