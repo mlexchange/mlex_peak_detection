@@ -134,9 +134,11 @@ def splash_GET_call(uri, tags, offset, limit):
 def splash_PATCH_call(tag, uid, domain):
     url = 'http://127.0.0.1:8000/api/v0/datasets/'+uid[5:]+'/tags'
     data = []
+    x1 = str(round(domain[0]))
+    x2 = str(round(domain[1]))
     data.append({
         'name': tag,
-        'locator': 'xaxis.range: '+str(domain[0])+', '+str(domain[1])})
+        'locator': 'xaxis.range: '+x1+', '+x2})
     return requests.patch(url, json=data).status_code
 
 
@@ -442,9 +444,10 @@ def update_output(
         prevent_initial_call=True)
 def apply_tags_table(n_clicks, rows, tag, figure):
     if n_clicks and tag:
-        x1 = figure['layout']['xaxis']['range'][0]
-        x2 = figure['layout']['xaxis']['range'][1]
-        temp = dict(Tag=tag, Domain=str(x1)+', '+str(x2))
+        domain = figure['layout']['xaxis']['range']
+        x1 = str(round(domain[0]))
+        x2 = str(round(domain[1]))
+        temp = dict(Tag=tag, Domain=x1+', '+x2)
         if rows:
             rows.append(temp)
         else:
@@ -491,9 +494,10 @@ def upload_tags_button(n_clicks, rows, tag, uid, figure):
                 figure['layout']['xaxis']['range'])
         # 200 for OK, 422 for validation error, 500 for server error
         if code_response == 200:
-            x1 = figure['layout']['xaxis']['range'][0]
-            x2 = figure['layout']['xaxis']['range'][1]
-            temp = dict(Tag=tag, Domain=str(x1)+', '+str(x2))
+            domain = figure['layout']['xaxis']['range']
+            x1 = str(round(domain[0]))
+            x2 = str(round(domain[1]))
+            temp = dict(Tag=tag, Domain=x1+', '+x2)
             if rows:
                 rows.append(temp)
             else:
@@ -510,7 +514,10 @@ def upload_tags_button(n_clicks, rows, tag, uid, figure):
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
         State({'type': 'graph', 'index': MATCH}, 'figure'))
 def post_graph_scale(action_dict, figure):
-    return 'Domain: '+str(figure['layout']['xaxis']['range'])
+    domain = figure['layout']['xaxis']['range']
+    x1 = str(round(domain[0]))
+    x2 = str(round(domain[1]))
+    return 'Domain: ['+x1+', '+x2+']'
 
 
 if __name__ == '__main__':
