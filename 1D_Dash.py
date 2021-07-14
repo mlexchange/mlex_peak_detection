@@ -256,7 +256,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                         type='number',
                         placeholder='Number of Peaks'),
                     dcc.Input(
-                        id={'type': 'plashplash_tags', 'index': index},
+                        id={'type': 'splash_tags', 'index': index},
                         type='text',
                         min=0,
                         placeholder='Tag Name'),
