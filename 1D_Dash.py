@@ -11,7 +11,7 @@ import dash_table
 
 import pandas as pd
 import plotly.express as px
-# import plotly.graph_objects as go
+import plotly.graph_objects as go
 import numpy as np
 from scipy import signal
 from astropy.modeling import models, fitting
@@ -65,13 +65,9 @@ sidebar = html.Div(
                         id='GET_uri',
                         placeholder='Pick URI',
                         type='text'),
-                    dcc.Dropdown(
+                    dcc.Input(
                         id='GET_tag',
-                        options=ANNOTATION_OPTIONS,
-                        placeholder='Pick Tags',
-                        multi=True,
-                        style={
-                            'textAlign': 'center'})],
+                        placeholder='Pick Tag')],
                 style={
                     'lineHeight': '60px',
                     'textAlign': 'center'}),
@@ -163,24 +159,19 @@ def parseXDI(xdiFile):
 # Handles the creation and format of the graph component in this webpage.
 # Graphs 1D data so no formating is needed for the graph.  If there are
 # multiple lines in your graph, you are not using the right data
-def get_Graph(df, name, index):
-    if len(df.columns) == 2:
-        fig = px.line(data_frame=df, x=df.columns[0], y=df.columns[1])
+def get_fig(x, y):
+    if len(y) > 0:
+        fig = go.Figure(
+                go.Scatter(x=x, y=y))
     else:
-        fig = px.line(data_frame=df)
+        fig = px.line(x)
     fig.update_layout(
              xaxis=dict(
                 rangeslider=dict(
                         visible=True),
                 type='linear'))
 
-    graph = dcc.Graph(
-            id={'type': name, 'index': index},
-            figure=fig,
-            config={
-                'displayModeBar': True,
-                'displaylogo': False})
-    return graph
+    return fig
 
 
 # parsing splash-ml files found.
@@ -212,7 +203,25 @@ def parse_splash_ml(contents, filename, uid, tags, index):
     # Only handels df data that has columns of energy, itrans, and i0
     if tags is None:
         tags = []
-    graph = get_Graph(df, 'graph', index)
+    data = pd.DataFrame.to_numpy(df)
+    x = data[:, 0]
+    if len(df.columns) == 2:
+        y = data[:, 1]
+    else:
+        y = []
+    graph = dcc.Graph(
+            id={'type': 'splash_graph', 'index': index},
+            figure=get_fig(x, y),
+            config={
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': [
+                    'pan2d',
+                    'resetScale2d',
+                    'toggleSpikelines',
+                    'hoverCompareCartesian',
+                    'zoomInGeo',
+                    'zoomOutGeo']})
 
     tags_data = []
     for i in tags:
@@ -241,7 +250,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             html.Div(
                 children=[
                     html.H6('Select peaks to find in'),
-                    html.Div(id={'type': 'domain', 'index': index}),
+                    html.Div(id={'type': 'splash_domain', 'index': index}),
                     dcc.Input(
                         id={'type': 'splash_peaks', 'index': index},
                         type='number',
@@ -319,8 +328,25 @@ def parse_contents(contents, filename, date, index):
             'There was an error processing this file. '+str(npyArr)
         ])
 
-    # Only handels df data that has columns of energy, itrans, and i0
-    graph = get_Graph(df, 'graph', index)
+    data = pd.DataFrame.to_numpy(df)
+    x = data[:, 0]
+    if len(df.columns) == 2:
+        y = data[:, 1]
+    else:
+        y = []
+    graph = dcc.Graph(
+            id={'type': 'graph', 'index': index},
+            figure=get_fig(x, y),
+            config={
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': [
+                    'pan2d',
+                    'resetScale2d',
+                    'toggleSpikelines',
+                    'hoverCompareCartesian',
+                    'zoomInGeo',
+                    'zoomOutGeo']})
 
     graphData = [
             html.H5(
@@ -361,7 +387,8 @@ def parse_contents(contents, filename, date, index):
                             {'name': 'Tag', 'id': 'Tag'},
                             {'name': 'Peak', 'id': 'Peak'},
                             {'name': 'FWHM', 'id': 'FWHM'}],
-                        style_cell={'padding': '1rem'}),
+                        style_cell={'padding': '1rem'},
+                        row_deletable=True),
                     html.Button(
                         id={'type': 'save_labels', 'index': index},
                         children='Save Table of Tags'),
@@ -422,7 +449,7 @@ def get_peaks(x_data, y_data, num_peaks):
         g_init = models.Gaussian1D(
                 amplitude=y_data[i],
                 mean=x_data[i],
-                stddev=1.)
+                stddev=0.5)
 
         fit_g = fitting.LevMarLSQFitter()
         g = fit_g(g_init, x_data, y_data)
@@ -471,7 +498,7 @@ def update_output(
                 except Exception as e:
                     print(e)
                     children.append(
-                            html.Div('Invalid file type from splash-ml'))
+                            html.Div('File path not found from splash-ml'))
                     continue
                 n = file_info[i]['uri']
                 d = file_info[i]['uid']
@@ -566,7 +593,7 @@ def save_tags_button(n_clicks, rows, file_name):
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
         State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
         State({'type': 'splash_uid', 'index': MATCH}, 'children'),
-        State({'type': 'graph', 'index': MATCH}, 'figure'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         prevent_initial_call=True)
 def upload_tags_button(n_clicks, rows, tag, num_peaks, uid, figure):
     if n_clicks and tag:
@@ -627,6 +654,59 @@ def post_graph_scale(action_dict, data, figure):
     x2 = domain[1]
     return html.Div(children=[
         'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
+
+
+@app.callback(
+        Output({'type': 'splash_domain', 'index': MATCH}, 'children'),
+        Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'clickData'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
+def splash_graph_scale(action_dict, data, figure):
+    domain = figure['layout']['xaxis']['range']
+    x1 = domain[0]
+    x2 = domain[1]
+    return html.Div(children=[
+        'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
+
+
+@app.callback(
+        Output({'type': 'graph', 'index': MATCH}, 'figure'),
+        Input({'type': 'tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'graph', 'index': MATCH}, 'figure'))
+def update_graph_annotation(rows, figure):
+    x_data = figure['data'][0]['x']
+    y_data = figure['data'][0]['y']
+    figure = get_fig(x_data, y_data)
+    if rows:
+        for i in rows:
+            pos_x = i['Peak'].split()[0][:-1]
+            name = i['Tag']
+            figure.add_vline(
+                    x=float(pos_x),
+                    line_width=1,
+                    line_color='purple',
+                    annotation_text=name)
+    return figure
+
+
+@app.callback(
+        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        Input({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
+def update_splash_annotation(rows, figure):
+    x_data = figure['data'][0]['x']
+    y_data = figure['data'][0]['y']
+    figure = get_fig(x_data, y_data)
+    if rows:
+        for i in rows:
+            pos_x = i['Peak'].split()[0][:-1]
+            name = i['Tag']
+            figure.add_vline(
+                    x=float(pos_x),
+                    line_width=1,
+                    line_color='purple',
+                    annotation_text=name)
+    return figure
 
 
 if __name__ == '__main__':
