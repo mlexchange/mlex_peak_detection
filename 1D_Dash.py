@@ -25,13 +25,6 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-# This needs to be changed, not sure what the annotation options are though
-ANNOTATION_OPTIONS = [
-        {'label': 'Arc', 'value': 'Arc'},
-        {'label': 'Rods', 'value': 'Rods'},
-        {'label': 'Peak', 'value': 'Peak'},
-        {'label': 'Rings', 'value': 'Rings'}]
-
 # the style arguments for the sidebar. We use position:fixed and a fixed width
 SIDEBAR_STYLE = {
         'position': 'fixed',
@@ -109,9 +102,9 @@ content = html.Div([
 app.layout = html.Div([sidebar, content])
 
 
-# splash-ml GET request with default parameters.  parameters might be an option
-# to look into but currently splash just returns the first 10 datasets in the
-# database.
+# splash-ml GET request with uri and tag paramaters.  The offset and limit
+# values are set to the default values of 0 and 10 at the moment as splash-ml
+# integration and use case isnt fully explored
 def splash_GET_call(uri, tags, offset, limit):
     url = 'http://127.0.0.1:8000/api/v0/datasets?'
     if uri:
@@ -156,9 +149,7 @@ def parseXDI(xdiFile):
     return pd.DataFrame(data, columns=last_header_line.split()[1:])
 
 
-# Handles the creation and format of the graph component in this webpage.
-# Graphs 1D data so no formating is needed for the graph.  If there are
-# multiple lines in your graph, you are not using the right data
+# Handles the creation and format of the figure graph component in this webpage
 def get_fig(x, y):
     if len(y) > 0:
         fig = go.Figure(
@@ -200,15 +191,18 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             'There was an error processing this file.'
         ])
 
-    # Only handels df data that has columns of energy, itrans, and i0
+    # Makes sure tags doesnt break with None type
     if tags is None:
         tags = []
+    # split down data to work with new get_fig function
     data = pd.DataFrame.to_numpy(df)
     x = data[:, 0]
     if len(df.columns) == 2:
         y = data[:, 1]
     else:
         y = []
+    # building graph object outside of get_fig() as get_fig() is used in other
+    # locations
     graph = dcc.Graph(
             id={'type': 'splash_graph', 'index': index},
             figure=get_fig(x, y),
@@ -223,6 +217,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                     'zoomInGeo',
                     'zoomOutGeo']})
 
+    # Building the splash-ml table from tags already in the database
     tags_data = []
     for i in tags:
         arr = i['locator'].split()
@@ -328,12 +323,15 @@ def parse_contents(contents, filename, date, index):
             'There was an error processing this file. '+str(npyArr)
         ])
 
+    # split down data to work with new get_fig() function
     data = pd.DataFrame.to_numpy(df)
     x = data[:, 0]
     if len(df.columns) == 2:
         y = data[:, 1]
     else:
         y = []
+    # Graph build outside of get_fig() to accomodate for other calls to this
+    # function
     graph = dcc.Graph(
             id={'type': 'graph', 'index': index},
             figure=get_fig(x, y),
@@ -479,12 +477,14 @@ def update_output(
         uri,
         list_of_tags):
     children = []
+    # If local upload needs to populate the page
     if list_of_contents:
         for i in range(len(list_of_contents)):
             c = list_of_contents[i]
             n = list_of_names[i]
             d = list_of_dates[i]
             children.append(parse_contents(c, n, d, i))
+    # If splash-ml needs to populate the page
     elif n_clicks:
         offset = 0
         limit = 10
@@ -641,8 +641,7 @@ def upload_tags_button(n_clicks, rows, tag, num_peaks, uid, figure):
         return html.Div('No Tags Selected'), rows
 
 
-# Displays the current domain of graph.  Thinking about rounding the numbers to
-# int as the massive float number isnt too friendly to the user experience
+# Displays the current domain of graph for local upload.
 @app.callback(
         Output({'type': 'domain', 'index': MATCH}, 'children'),
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
@@ -656,6 +655,7 @@ def post_graph_scale(action_dict, data, figure):
         'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
 
 
+# Displays the current domain of graph for splash-ml upload.
 @app.callback(
         Output({'type': 'splash_domain', 'index': MATCH}, 'children'),
         Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
@@ -669,44 +669,39 @@ def splash_graph_scale(action_dict, data, figure):
         'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
 
 
+# Tagging graph code used by both splash-ml and local callbacks
+def update_annotation_helper(rows, figure):
+    x_data = figure['data'][0]['x']
+    y_data = figure['data'][0]['y']
+    figure = get_fig(x_data, y_data)
+    if rows:
+        for i in rows:
+            pos_x = i['Peak'].split()[0][:-1]
+            name = i['Tag']
+            figure.add_vline(
+                    x=float(pos_x),
+                    line_width=1,
+                    line_color='purple',
+                    annotation_text=name)
+    return figure
+
+
+# Populates the graph with tags and the peak locations for local upload
 @app.callback(
         Output({'type': 'graph', 'index': MATCH}, 'figure'),
         Input({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'graph', 'index': MATCH}, 'figure'))
 def update_graph_annotation(rows, figure):
-    x_data = figure['data'][0]['x']
-    y_data = figure['data'][0]['y']
-    figure = get_fig(x_data, y_data)
-    if rows:
-        for i in rows:
-            pos_x = i['Peak'].split()[0][:-1]
-            name = i['Tag']
-            figure.add_vline(
-                    x=float(pos_x),
-                    line_width=1,
-                    line_color='purple',
-                    annotation_text=name)
-    return figure
+    return update_annotation_helper(rows, figure)
 
 
+# Populates the graph with tags and the peak locations for splash upload
 @app.callback(
         Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         Input({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
 def update_splash_annotation(rows, figure):
-    x_data = figure['data'][0]['x']
-    y_data = figure['data'][0]['y']
-    figure = get_fig(x_data, y_data)
-    if rows:
-        for i in rows:
-            pos_x = i['Peak'].split()[0][:-1]
-            name = i['Tag']
-            figure.add_vline(
-                    x=float(pos_x),
-                    line_width=1,
-                    line_color='purple',
-                    annotation_text=name)
-    return figure
+    return update_annotation_helper(rows, figure)
 
 
 if __name__ == '__main__':
