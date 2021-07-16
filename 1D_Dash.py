@@ -11,7 +11,10 @@ import dash_table
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
+from scipy import signal
+from astropy.modeling import models, fitting
 
 # Imports for interacting with splash-ml api
 import urllib.request
@@ -21,13 +24,6 @@ import json
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-
-# This needs to be changed, not sure what the annotation options are though
-ANNOTATION_OPTIONS = [
-        {'label': 'Arc', 'value': 'Arc'},
-        {'label': 'Rods', 'value': 'Rods'},
-        {'label': 'Peaks', 'value': 'Peaks'},
-        {'label': 'Rings', 'value': 'Rings'}]
 
 # the style arguments for the sidebar. We use position:fixed and a fixed width
 SIDEBAR_STYLE = {
@@ -62,13 +58,9 @@ sidebar = html.Div(
                         id='GET_uri',
                         placeholder='Pick URI',
                         type='text'),
-                    dcc.Dropdown(
+                    dcc.Input(
                         id='GET_tag',
-                        options=ANNOTATION_OPTIONS,
-                        placeholder='Pick Tags',
-                        multi=True,
-                        style={
-                            'textAlign': 'center'})],
+                        placeholder='Pick Tag')],
                 style={
                     'lineHeight': '60px',
                     'textAlign': 'center'}),
@@ -110,9 +102,9 @@ content = html.Div([
 app.layout = html.Div([sidebar, content])
 
 
-# splash-ml GET request with default parameters.  parameters might be an option
-# to look into but currently splash just returns the first 10 datasets in the
-# database.
+# splash-ml GET request with uri and tag paramaters.  The offset and limit
+# values are set to the default values of 0 and 10 at the moment as splash-ml
+# integration and use case isnt fully explored
 def splash_GET_call(uri, tags, offset, limit):
     url = 'http://127.0.0.1:8000/api/v0/datasets?'
     if uri:
@@ -131,12 +123,12 @@ def splash_GET_call(uri, tags, offset, limit):
 
 # Takes tags applied to data along wtih the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
-def splash_PATCH_call(tag, uid, domain):
+def splash_PATCH_call(tag, uid, x, y, fwhm):
     url = 'http://127.0.0.1:8000/api/v0/datasets/'+uid[5:]+'/tags'
     data = []
     data.append({
         'name': tag,
-        'locator': 'xaxis.range: '+str(domain[0])+', '+str(domain[1])})
+        'locator': str(x)+', '+str(y)+', '+str(fwhm)})
     return requests.patch(url, json=data).status_code
 
 
@@ -157,24 +149,20 @@ def parseXDI(xdiFile):
     return pd.DataFrame(data, columns=last_header_line.split()[1:])
 
 
-# Handles the creation and format of the graph component in this webpage.
-# Graphs 1D data so no formating is needed for the graph.  If there are
-# multiple lines in your graph, you are not using the right data
-def get_Graph(df, name, index):
-    fig = px.line(data_frame=df)
+# Handles the creation and format of the figure graph component in this webpage
+def get_fig(x, y):
+    if len(y) > 0:
+        fig = go.Figure(
+                go.Scatter(x=x, y=y))
+    else:
+        fig = px.line(x)
     fig.update_layout(
              xaxis=dict(
                 rangeslider=dict(
                         visible=True),
                 type='linear'))
 
-    graph = dcc.Graph(
-            id={'type': name, 'index': index},
-            figure=fig,
-            config={
-                'displayModeBar': True,
-                'displaylogo': False})
-    return graph
+    return fig
 
 
 # parsing splash-ml files found.
@@ -187,7 +175,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             # The user uploaded a CSV file
             df = pd.read_csv(contents)
             # Can't handle anything other than 3 columns for graphing
-            if len(df.columns) != 3:
+            if len(df.columns) != 2:
                 raise
         if filename.endswith('.xdi'):
             # The user uploaded a XDI file
@@ -203,22 +191,45 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             'There was an error processing this file.'
         ])
 
-    # Only handels df data that has columns of energy, itrans, and i0
+    # Makes sure tags doesnt break with None type
     if tags is None:
         tags = []
-    graph = get_Graph(df, 'graph', index)
+    # split down data to work with new get_fig function
+    data = pd.DataFrame.to_numpy(df)
+    x = data[:, 0]
+    if len(df.columns) == 2:
+        y = data[:, 1]
+    else:
+        y = []
+    # building graph object outside of get_fig() as get_fig() is used in other
+    # locations
+    graph = dcc.Graph(
+            id={'type': 'splash_graph', 'index': index},
+            figure=get_fig(x, y),
+            config={
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': [
+                    'pan2d',
+                    'resetScale2d',
+                    'toggleSpikelines',
+                    'hoverCompareCartesian',
+                    'zoomInGeo',
+                    'zoomOutGeo']})
 
+    # Building the splash-ml table from tags already in the database
     tags_data = []
     for i in tags:
         arr = i['locator'].split()
 
         if len(arr) == 3:
-            x1 = arr[1][:-1]
-            x2 = arr[2]
-            temp = dict(Tag=i['name'], Domain=str(x1+', '+x2))
+            x = arr[0][:-1]
+            y = arr[1][:-1]
+            fwhm = arr[2]
+            temp = dict(Tag=i['name'], Peak=str(x+', '+y), FWHM=fwhm)
             tags_data.append(temp)
         else:
-            temp = dict(Tag=i['name'], Domain=str('None'))
+            temp = dict(Tag=i['name'])
             tags_data.append(temp)
 
     graphData = [
@@ -231,21 +242,28 @@ def parse_splash_ml(contents, filename, uid, tags, index):
 
             # Graph of csv file
             graph,
-            html.Div(id={'type': 'domain', 'index': index}),
             html.Div(
                 children=[
-                    html.H6('Select domain to apply tag to'),
-                    dcc.Dropdown(
+                    html.H6('Select peaks to find in'),
+                    html.Div(id={'type': 'splash_domain', 'index': index}),
+                    dcc.Input(
+                        id={'type': 'splash_peaks', 'index': index},
+                        type='number',
+                        placeholder='Number of Peaks'),
+                    dcc.Input(
                         id={'type': 'splash_tags', 'index': index},
-                        options=ANNOTATION_OPTIONS,
-                        placeholder='Select Tag'),
+                        type='text',
+                        min=0,
+                        placeholder='Tag Name'),
                     html.Button(
                         id={'type': 'upload_splash_tags', 'index': index},
-                        children='Save Tag to Splash-ML'),
+                        children='Save Tag to Splash-ML',
+                        style={
+                            'padding-bottom': '3rem'}),
                     html.Div(id={'type': 'splash_response', 'index': index})],
                 style={
                     'width': '30rem',
-                    'padding': '3rem 3rem',
+                    'padding': '3rem 3rem 3rem 3rem',
                     'float': 'left'}),
             html.Div(
                 children=[
@@ -254,12 +272,14 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                         id={'type': 'splash_tag_table', 'index': index},
                         columns=[
                             {'name': 'Tag', 'id': 'Tag'},
-                            {'name': 'Domain', 'id': 'Domain'}],
+                            {'name': 'Peak', 'id': 'Peak'},
+                            {'name': 'FWHM', 'id': 'FWHM'}],
                         data=tags_data,
                         style_cell={'padding': '1rem'})],
                 style={
                     'margin-left': '33rem',
                     'margin-right': '2rem',
+                    'margin-bottom': '4rem',
                     'padding': '3rem 3rem'})]
 
     return html.Div(
@@ -267,7 +287,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             style={
                 'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
                 'border-radius': '20px',
-                'padding': '16px 16px',
+                'padding': '30px 30px',
                 'margin': '10px'})
 
 
@@ -285,7 +305,7 @@ def parse_contents(contents, filename, date, index):
             # The user uploaded a CSV file
             df = pd.read_csv(content)
             # Can't handle anything other than 3 columns for graphing
-            if len(df.columns) != 3:
+            if len(df.columns) != 2:
                 raise
         if filename.endswith('.xdi'):
             content = io.StringIO(decoded.decode('utf-8'))
@@ -303,8 +323,28 @@ def parse_contents(contents, filename, date, index):
             'There was an error processing this file. '+str(npyArr)
         ])
 
-    # Only handels df data that has columns of energy, itrans, and i0
-    graph = get_Graph(df, 'graph', index)
+    # split down data to work with new get_fig() function
+    data = pd.DataFrame.to_numpy(df)
+    x = data[:, 0]
+    if len(df.columns) == 2:
+        y = data[:, 1]
+    else:
+        y = []
+    # Graph build outside of get_fig() to accomodate for other calls to this
+    # function
+    graph = dcc.Graph(
+            id={'type': 'graph', 'index': index},
+            figure=get_fig(x, y),
+            config={
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': [
+                    'pan2d',
+                    'resetScale2d',
+                    'toggleSpikelines',
+                    'hoverCompareCartesian',
+                    'zoomInGeo',
+                    'zoomOutGeo']})
 
     graphData = [
             html.H5(
@@ -314,20 +354,27 @@ def parse_contents(contents, filename, date, index):
 
             # Graph of csv file
             graph,
-            html.Div(id={'type': 'domain', 'index': index}),
             html.Div(
                 children=[
-                    html.H6('Select domain to apply tag to'),
-                    dcc.Dropdown(
-                        id={'type': 'dropdown_tags', 'index': index},
-                        options=ANNOTATION_OPTIONS,
-                        placeholder='Select Tags'),
+                    html.H6('Select peaks to find in'),
+                    html.Div(id={'type': 'domain', 'index': index}),
+                    dcc.Input(
+                        id={'type': 'input_peaks', 'index': index},
+                        type='number',
+                        placeholder='Number of Peaks'),
+                    dcc.Input(
+                        id={'type': 'input_tags', 'index': index},
+                        type='text',
+                        min=0,
+                        placeholder='Tag Name'),
                     html.Button(
                         id={'type': 'apply_labels', 'index': index},
-                        children='Add Tag')],
+                        children='Add Tag',
+                        style={
+                            'padding-bottom': '3rem'})],
                 style={
                     'width': '30rem',
-                    'padding': '3rem 3rem',
+                    'padding': '3rem 3rem 3rem 3rem',
                     'float': 'left'}),
             html.Div(
                 children=[
@@ -336,8 +383,10 @@ def parse_contents(contents, filename, date, index):
                         id={'type': 'tag_table', 'index': index},
                         columns=[
                             {'name': 'Tag', 'id': 'Tag'},
-                            {'name': 'Domain', 'id': 'Domain'}],
-                        style_cell={'padding': '1rem'}),
+                            {'name': 'Peak', 'id': 'Peak'},
+                            {'name': 'FWHM', 'id': 'FWHM'}],
+                        style_cell={'padding': '1rem'},
+                        row_deletable=True),
                     html.Button(
                         id={'type': 'save_labels', 'index': index},
                         children='Save Table of Tags'),
@@ -355,7 +404,7 @@ def parse_contents(contents, filename, date, index):
             style={
                 'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
                 'border-radius': '20px',
-                'padding': '16px 16px',
+                'padding': '30px 30px',
                 'margin': '10px'})
 
 
@@ -366,14 +415,45 @@ def save_local_file(rows_of_tags, file_name):
     tags_file = file_name[:-4]+'_tags.csv'
     f = open('./'+tags_file, 'w')
     for i in rows_of_tags:
-        x1 = i['Domain'].split()[0][:-1]
-        x2 = i['Domain'].split()[1]
-        f.write(i['Tag']+','+x1+','+x2+'\n')
+        x1 = i['Peak'].split()[0][:-1]
+        x2 = i['Peak'].split()[1]
+        f.write(i['Tag']+','+x1+','+x2+','+i['FWHM']+'\n')
     f.close()
 
     res = dcc.send_file('./'+tags_file)
     os.remove('./'+tags_file)
     return res
+
+
+# Takes x,y data, find the peaks and fits Gassuian curves to them.
+# Returns location of peaks and full width half max
+def get_peaks(x_data, y_data, num_peaks):
+    xp = signal.find_peaks_cwt(
+            y_data,
+            1)
+    temp_list = []
+    if len(xp > num_peaks):
+        for i in xp:
+            temp_list.append((y_data[i], i))
+        temp_list.sort()
+        temp_list = temp_list[(len(temp_list)-num_peaks):]
+        xp = []
+        for i in temp_list:
+            xp.append(i[1])
+        xp.sort()
+
+    FWHM_list = []
+    for i in xp:
+        g_init = models.Gaussian1D(
+                amplitude=y_data[i],
+                mean=x_data[i],
+                stddev=0.5)
+
+        fit_g = fitting.LevMarLSQFitter()
+        g = fit_g(g_init, x_data, y_data)
+        FWHM_list.append(g.fwhm)
+
+    return xp, FWHM_list
 
 
 # Combined the upload and splash-ml data graphs into one callback to simplify
@@ -397,22 +477,29 @@ def update_output(
         uri,
         list_of_tags):
     children = []
+    # If local upload needs to populate the page
     if list_of_contents:
         for i in range(len(list_of_contents)):
             c = list_of_contents[i]
             n = list_of_names[i]
             d = list_of_dates[i]
             children.append(parse_contents(c, n, d, i))
+    # If splash-ml needs to populate the page
     elif n_clicks:
         offset = 0
         limit = 10
         file_info = splash_GET_call(uri, list_of_tags, offset, limit)
         children = []
         for i in range(len(file_info)):
-            children.append(html.Div('oi bruv'))
             f_type = file_info[i]['type']
             if f_type == 'file':
-                c = open(file_info[i]['uri'], 'r')
+                try:
+                    c = open(file_info[i]['uri'], 'r')
+                except Exception as e:
+                    print(e)
+                    children.append(
+                            html.Div('File path not found from splash-ml'))
+                    continue
                 n = file_info[i]['uri']
                 d = file_info[i]['uid']
                 t = file_info[i]['tags']
@@ -437,18 +524,42 @@ def update_output(
         Output({'type': 'tag_table', 'index': MATCH}, 'data'),
         Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'dropdown_tags', 'index': MATCH}, 'value'),
+        State({'type': 'input_tags', 'index': MATCH}, 'value'),
+        State({'type': 'input_peaks', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         prevent_initial_call=True)
-def apply_tags_table(n_clicks, rows, tag, figure):
+def apply_tags_table(n_clicks, rows, tag, num_peaks, figure):
+    peaks = None
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
         x2 = figure['layout']['xaxis']['range'][1]
-        temp = dict(Tag=tag, Domain=str(x1)+', '+str(x2))
-        if rows:
-            rows.append(temp)
-        else:
-            rows = [temp]
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+        start, end = 0, len(x_data)
+        for i in range(len(x_data)):
+            if x_data[i] >= x1 and start == 0:
+                start = i
+            if x_data[i] >= x2:
+                end = i+1
+                break
+
+        peaks, peak_fits = get_peaks(
+                x_data[start:end],
+                y_data[start:end],
+                num_peaks)
+
+        for i in range(len(peaks)):
+            index = peaks[i]+start
+            x, y = x_data[index], y_data[index]
+            fwhm = peak_fits[i]
+            temp = dict(
+                    Tag=tag,
+                    Peak=str(x)+', '+str(y),
+                    FWHM=str(fwhm))
+            if rows:
+                rows.append(temp)
+            else:
+                rows = [temp]
     return rows
 
 
@@ -480,37 +591,117 @@ def save_tags_button(n_clicks, rows, file_name):
         Input({'type': 'upload_splash_tags', 'index': MATCH}, 'n_clicks'),
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
+        State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
         State({'type': 'splash_uid', 'index': MATCH}, 'children'),
-        State({'type': 'graph', 'index': MATCH}, 'figure'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         prevent_initial_call=True)
-def upload_tags_button(n_clicks, rows, tag, uid, figure):
+def upload_tags_button(n_clicks, rows, tag, num_peaks, uid, figure):
     if n_clicks and tag:
-        code_response = splash_PATCH_call(
-                tag,
-                uid,
-                figure['layout']['xaxis']['range'])
-        # 200 for OK, 422 for validation error, 500 for server error
-        if code_response == 200:
-            x1 = figure['layout']['xaxis']['range'][0]
-            x2 = figure['layout']['xaxis']['range'][1]
-            temp = dict(Tag=tag, Domain=str(x1)+', '+str(x2))
-            if rows:
-                rows.append(temp)
+        x1 = figure['layout']['xaxis']['range'][0]
+        x2 = figure['layout']['xaxis']['range'][1]
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+        start, end = 0, len(x_data)
+        for i in range(len(x_data)):
+            if x_data[i] >= x1 and start == 0:
+                start = i
+            if x_data[i] >= x2:
+                end = i+1
+                break
+
+        peaks, peak_fits = get_peaks(
+                x_data[start:end],
+                y_data[start:end],
+                num_peaks)
+
+        for i in range(len(peaks)):
+            index = peaks[i]+start
+            x, y = x_data[index], y_data[index]
+            fwhm = peak_fits[i]
+            code_response = splash_PATCH_call(
+                    tag,
+                    uid,
+                    x,
+                    y,
+                    fwhm)
+            # 200 for OK, 422 for validation error, 500 for server error
+            if code_response == 200:
+                temp = dict(
+                        Tag=tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
+                if rows:
+                    rows.append(temp)
+                else:
+                    rows = [temp]
             else:
-                rows = [temp]
+                break
         return html.Div('Uploading Tags: '+str(code_response)), rows
     else:
         return html.Div('No Tags Selected'), rows
 
 
-# Displays the current domain of graph.  Thinking about rounding the numbers to
-# int as the massive float number isnt too friendly to the user experience
+# Displays the current domain of graph for local upload.
 @app.callback(
         Output({'type': 'domain', 'index': MATCH}, 'children'),
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
+        State({'type': 'graph', 'index': MATCH}, 'clickData'),
         State({'type': 'graph', 'index': MATCH}, 'figure'))
-def post_graph_scale(action_dict, figure):
-    return 'Domain: '+str(figure['layout']['xaxis']['range'])
+def post_graph_scale(action_dict, data, figure):
+    domain = figure['layout']['xaxis']['range']
+    x1 = domain[0]
+    x2 = domain[1]
+    return html.Div(children=[
+        'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
+
+
+# Displays the current domain of graph for splash-ml upload.
+@app.callback(
+        Output({'type': 'splash_domain', 'index': MATCH}, 'children'),
+        Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'clickData'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
+def splash_graph_scale(action_dict, data, figure):
+    domain = figure['layout']['xaxis']['range']
+    x1 = domain[0]
+    x2 = domain[1]
+    return html.Div(children=[
+        'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
+
+
+# Tagging graph code used by both splash-ml and local callbacks
+def update_annotation_helper(rows, figure):
+    x_data = figure['data'][0]['x']
+    y_data = figure['data'][0]['y']
+    figure = get_fig(x_data, y_data)
+    if rows:
+        for i in rows:
+            pos_x = i['Peak'].split()[0][:-1]
+            name = i['Tag']
+            figure.add_vline(
+                    x=float(pos_x),
+                    line_width=1,
+                    line_color='purple',
+                    annotation_text=name)
+    return figure
+
+
+# Populates the graph with tags and the peak locations for local upload
+@app.callback(
+        Output({'type': 'graph', 'index': MATCH}, 'figure'),
+        Input({'type': 'tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'graph', 'index': MATCH}, 'figure'))
+def update_graph_annotation(rows, figure):
+    return update_annotation_helper(rows, figure)
+
+
+# Populates the graph with tags and the peak locations for splash upload
+@app.callback(
+        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        Input({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
+def update_splash_annotation(rows, figure):
+    return update_annotation_helper(rows, figure)
 
 
 if __name__ == '__main__':
