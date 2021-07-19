@@ -2,6 +2,7 @@ import base64
 import datetime
 import io
 import os
+import math
 
 import dash
 from dash.dependencies import Input, Output, State, MATCH
@@ -20,6 +21,8 @@ from astropy.modeling import models, fitting
 import urllib.request
 import requests
 import json
+
+from packages.targeted_callbacks import targeted_callback
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -153,7 +156,7 @@ def parseXDI(xdiFile):
 def get_fig(x, y):
     if len(y) > 0:
         fig = go.Figure(
-                go.Scatter(x=x, y=y))
+                go.Scatter(x=x, y=y, name='XRD Data'))
     else:
         fig = px.line(x)
     fig.update_layout(
@@ -163,6 +166,28 @@ def get_fig(x, y):
                 type='linear'))
 
     return fig
+
+
+# Tagging graph code used by both splash-ml and local callbacks
+def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None):
+    figure = get_fig(x, y)
+    if rows:
+        for i in rows:
+            pos_x = i['Peak'].split()[0][:-1]
+            name = i['Tag']
+            figure.add_vline(
+                    x=float(pos_x),
+                    line_width=1,
+                    line_color='purple',
+                    annotation_text=name)
+    if g_unfit is not None:
+        figure.add_trace(
+                go.Scatter(x=x, y=g_unfit(x), mode='lines', name='unfit'))
+    if g_fit is not None:
+        figure.add_trace(
+                go.Scatter(x=x, y=g_fit(x), mode='lines', name='fit'))
+
+    return figure
 
 
 # parsing splash-ml files found.
@@ -194,28 +219,6 @@ def parse_splash_ml(contents, filename, uid, tags, index):
     # Makes sure tags doesnt break with None type
     if tags is None:
         tags = []
-    # split down data to work with new get_fig function
-    data = pd.DataFrame.to_numpy(df)
-    x = data[:, 0]
-    if len(df.columns) == 2:
-        y = data[:, 1]
-    else:
-        y = []
-    # building graph object outside of get_fig() as get_fig() is used in other
-    # locations
-    graph = dcc.Graph(
-            id={'type': 'splash_graph', 'index': index},
-            figure=get_fig(x, y),
-            config={
-                'displayModeBar': True,
-                'displaylogo': False,
-                'modeBarButtonsToRemove': [
-                    'pan2d',
-                    'resetScale2d',
-                    'toggleSpikelines',
-                    'hoverCompareCartesian',
-                    'zoomInGeo',
-                    'zoomOutGeo']})
 
     # Building the splash-ml table from tags already in the database
     tags_data = []
@@ -231,6 +234,29 @@ def parse_splash_ml(contents, filename, uid, tags, index):
         else:
             temp = dict(Tag=i['name'])
             tags_data.append(temp)
+
+    # split down data to work with new get_fig function
+    data = pd.DataFrame.to_numpy(df)
+    x = data[:, 0]
+    if len(df.columns) == 2:
+        y = data[:, 1]
+    else:
+        y = []
+    # building graph object outside of get_fig() as get_fig() is used in other
+    # locations
+    graph = dcc.Graph(
+            id={'type': 'splash_graph', 'index': index},
+            figure=update_annotation_helper(tags_data, x, y),
+            config={
+                'displayModeBar': True,
+                'displaylogo': False,
+                'modeBarButtonsToRemove': [
+                    'pan2d',
+                    'resetScale2d',
+                    'toggleSpikelines',
+                    'hoverCompareCartesian',
+                    'zoomInGeo',
+                    'zoomOutGeo']})
 
     graphData = [
             html.H5(
@@ -427,33 +453,63 @@ def save_local_file(rows_of_tags, file_name):
 
 # Takes x,y data, find the peaks and fits Gassuian curves to them.
 # Returns location of peaks and full width half max
+# Takes x,y data, find the peaks and fits Gassuian curves to them.
+# Returns location of peaks and full width half max
 def get_peaks(x_data, y_data, num_peaks):
-    xp = signal.find_peaks_cwt(
-            y_data,
-            1)
+    total_p = signal.find_peaks_cwt(y_data, 1)
+    total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
+    total_img = np.log(total_img+1)
+    if len(total_p) == 0:
+        return [], []
     temp_list = []
-    if len(xp > num_peaks):
-        for i in xp:
+    return_p = []
+    if len(total_p > num_peaks):
+        for i in total_p:
             temp_list.append((y_data[i], i))
         temp_list.sort()
-        temp_list = temp_list[(len(temp_list)-num_peaks):]
-        xp = []
+        temp_list = temp_list[-num_peaks:]
         for i in temp_list:
-            xp.append(i[1])
-        xp.sort()
+            return_p.append(i[1])
+        return_p.sort()
 
-    FWHM_list = []
-    for i in xp:
+    g_unfit = None
+    g_fit = None
+    difference = x_data[1] - x_data[0]
+    for i in return_p:
+        largest_width = 0
+        for i_img in range(len(total_img)):
+            if total_img[i_img][i] > largest_width:
+                largest_width = total_img[i_img][i]
+        stddev = (largest_width*difference)/(2*math.sqrt(2*math.log(2)))
+
         g_init = models.Gaussian1D(
                 amplitude=y_data[i],
                 mean=x_data[i],
-                stddev=0.5)
-
+                stddev=stddev)
+        g_init.mean.min = float(x_data[0])
+        g_init.mean.max = float(x_data[-1])
+        g_init.amplitude.min = 0
+        if g_unfit is None:
+            g_unfit = g_init
+        else:
+            g_unfit = g_unfit+g_init
+    # If all else isnt working, check this again it might be an issue
+    fit_g = fitting.SimplexLSQFitter()
+    if len(return_p) == 1:
         fit_g = fitting.LevMarLSQFitter()
-        g = fit_g(g_init, x_data, y_data)
-        FWHM_list.append(g.fwhm)
+    g_fit = fit_g(g_unfit, x_data, y_data)
 
-    return xp, FWHM_list
+    print(g_fit)
+
+    FWHM_list = []
+    if len(return_p) == 1:
+        FWHM_list.append(g_fit.stddev)
+    else:
+        for i in range(len(return_p)):
+            FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
+            FWHM_list[-1] = FWHM_list[-1].value
+
+    return return_p, FWHM_list, g_unfit, g_fit, total_img
 
 
 # Combined the upload and splash-ml data graphs into one callback to simplify
@@ -522,6 +578,7 @@ def update_output(
 # and saves it in current session
 @app.callback(
         Output({'type': 'tag_table', 'index': MATCH}, 'data'),
+        Output({'type': 'graph', 'index': MATCH}, 'figure'),
         Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
@@ -543,7 +600,7 @@ def apply_tags_table(n_clicks, rows, tag, num_peaks, figure):
                 end = i+1
                 break
 
-        peaks, peak_fits = get_peaks(
+        peaks, peak_fits, g_unfit, g_fit, cwt_img = get_peaks(
                 x_data[start:end],
                 y_data[start:end],
                 num_peaks)
@@ -560,7 +617,13 @@ def apply_tags_table(n_clicks, rows, tag, num_peaks, figure):
                 rows.append(temp)
             else:
                 rows = [temp]
-    return rows
+
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+
+        figure = update_annotation_helper(rows, x_data, y_data, g_unfit, g_fit)
+
+    return rows, figure
 
 
 # Tag table callback for when the graph is from uploaded data.  Downloads the
@@ -669,39 +732,21 @@ def splash_graph_scale(action_dict, data, figure):
         'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
 
 
-# Tagging graph code used by both splash-ml and local callbacks
-def update_annotation_helper(rows, figure):
+# Populates the graph with tags and the peak locations for splash upload
+def update_splash_annotation(rows):
+    input_states = dash.callback_context.states
+    figure = next(iter(input_states.values()))
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
-    figure = get_fig(x_data, y_data)
-    if rows:
-        for i in rows:
-            pos_x = i['Peak'].split()[0][:-1]
-            name = i['Tag']
-            figure.add_vline(
-                    x=float(pos_x),
-                    line_width=1,
-                    line_color='purple',
-                    annotation_text=name)
-    return figure
+    return update_annotation_helper(rows, x_data, y_data)
 
 
-# Populates the graph with tags and the peak locations for local upload
-@app.callback(
-        Output({'type': 'graph', 'index': MATCH}, 'figure'),
-        Input({'type': 'tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'graph', 'index': MATCH}, 'figure'))
-def update_graph_annotation(rows, figure):
-    return update_annotation_helper(rows, figure)
-
-
-# Populates the graph with tags and the peak locations for splash upload
-@app.callback(
-        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-        Input({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
-def update_splash_annotation(rows, figure):
-    return update_annotation_helper(rows, figure)
+targeted_callback(
+    update_splash_annotation,
+    Input({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
+    Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+    State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+    app=app)
 
 
 if __name__ == '__main__':
