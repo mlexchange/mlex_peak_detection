@@ -190,7 +190,7 @@ def parse_contents(contents, filename, date, index):
 # Returns location of peaks and full width half max
 def get_peaks(x_data, y_data, num_peaks):
     total_p = signal.find_peaks_cwt(y_data, 1)
-    total_img = signal.cwt(y_data, signal.ricker, list(range(1, 7)))
+    total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
     total_img = np.log(total_img+1)
     if len(total_p) == 0:
         return [], []
@@ -208,7 +208,6 @@ def get_peaks(x_data, y_data, num_peaks):
     g_unfit = None
     g_fit = None
     difference = x_data[1] - x_data[0]
-    print(total_img)
     for i in return_p:
         largest_width = 0
         for i_img in range(len(total_img)):
@@ -219,7 +218,7 @@ def get_peaks(x_data, y_data, num_peaks):
         g_init = models.Gaussian1D(
                 amplitude=y_data[i],
                 mean=x_data[i],
-                stddev=0.01)
+                stddev=stddev)
         g_init.mean.min = float(x_data[0])
         g_init.mean.max = float(x_data[-1])
         g_init.amplitude.min = 0
@@ -228,11 +227,10 @@ def get_peaks(x_data, y_data, num_peaks):
         else:
             g_unfit = g_unfit+g_init
     # If all else isnt working, check this again it might be an issue
-    fit_g = fitting.SLSQPLSQFitter()
+    fit_g = fitting.SimplexLSQFitter()
     if len(return_p) == 1:
         fit_g = fitting.LevMarLSQFitter()
     g_fit = fit_g(g_unfit, x_data, y_data)
-    print(fit_g.fit_info['message'])
 
     print(g_fit)
 
@@ -242,6 +240,7 @@ def get_peaks(x_data, y_data, num_peaks):
     else:
         for i in range(len(return_p)):
             FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
+            FWHM_list[-1] = FWHM_list[-1].value
 
     return return_p, FWHM_list, g_unfit, g_fit, total_img
 
