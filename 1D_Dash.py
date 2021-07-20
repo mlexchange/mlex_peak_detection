@@ -532,7 +532,6 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None):
         fit_g = fitting.LevMarLSQFitter()
     g_fit = fit_g(g_unfit, x_data, y_data)
 
-
     FWHM_list = []
     if len(return_p) == 1:
         FWHM_list.append(g_fit.stddev.value)
@@ -713,7 +712,7 @@ def upload_tags_button(n_clicks, rows, tag, num_peaks, uid, figure):
                 end = i+1
                 break
 
-        peaks, peak_fits = get_peaks(
+        peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
                 x_data[start:end],
                 y_data[start:end],
                 num_peaks)
