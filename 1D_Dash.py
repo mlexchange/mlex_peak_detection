@@ -169,7 +169,8 @@ def get_fig(x, y):
 
 
 # Tagging graph code used by both splash-ml and local callbacks
-def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None):
+def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
+                             baseline=None):
     figure = get_fig(x, y)
     if rows:
         for i in rows:
@@ -180,12 +181,30 @@ def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None):
                     line_width=1,
                     line_color='purple',
                     annotation_text=name)
-    if g_unfit is not None:
+    if baseline is not None:
         figure.add_trace(
-                go.Scatter(x=x, y=g_unfit(x), mode='lines', name='unfit'))
-    if g_fit is not None:
-        figure.add_trace(
-                go.Scatter(x=x, y=g_fit(x), mode='lines', name='fit'))
+                go.Scatter(x=x, y=baseline(x), mode='lines', name='baseline'))
+        if g_unfit is not None:
+            figure.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=g_unfit(x)+baseline(x),
+                        mode='lines',
+                        name='unfit'))
+        if g_fit is not None:
+            figure.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=g_fit(x)+baseline(x),
+                        mode='lines',
+                        name='fit'))
+    else:
+        if g_unfit is not None:
+            figure.add_trace(
+                    go.Scatter(x=x, y=g_unfit(x), mode='lines', name='unfit'))
+        if g_fit is not None:
+            figure.add_trace(
+                    go.Scatter(x=x, y=g_fit(x), mode='lines', name='fit'))
 
     return figure
 
@@ -380,6 +399,12 @@ def parse_contents(contents, filename, date, index):
 
             # Graph of csv file
             graph,
+            dcc.Checklist(
+                id={'type': 'baseline', 'index': index},
+                options=[
+                    {'label': 'Apply Baseline to Peak Fitting',
+                        'value': 'Apply Baseline to Data'}],
+                style={'padding-left': '3rem'}),
             html.Div(
                 children=[
                     html.H6('Select peaks to find in'),
@@ -455,7 +480,15 @@ def save_local_file(rows_of_tags, file_name):
 # Returns location of peaks and full width half max
 # Takes x,y data, find the peaks and fits Gassuian curves to them.
 # Returns location of peaks and full width half max
-def get_peaks(x_data, y_data, num_peaks):
+def get_peaks(x_data, y_data, num_peaks, baseline=None):
+    base_model = None
+    if baseline:
+        slope = (y_data[-1] - y_data[0])/(x_data[-1] - x_data[0])
+        intercept = y_data[0] - (slope * x_data[0])
+        base_model = models.Linear1D(slope=slope, intercept=intercept)
+        for i in range(len(y_data)):
+            y_data[i] = y_data[i] - base_model(x_data[i])
+
     total_p = signal.find_peaks_cwt(y_data, 1)
     total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
     total_img = np.log(total_img+1)
@@ -499,17 +532,16 @@ def get_peaks(x_data, y_data, num_peaks):
         fit_g = fitting.LevMarLSQFitter()
     g_fit = fit_g(g_unfit, x_data, y_data)
 
-    print(g_fit)
 
     FWHM_list = []
     if len(return_p) == 1:
-        FWHM_list.append(g_fit.stddev)
+        FWHM_list.append(g_fit.stddev.value)
     else:
         for i in range(len(return_p)):
             FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
             FWHM_list[-1] = FWHM_list[-1].value
 
-    return return_p, FWHM_list, g_unfit, g_fit, total_img
+    return return_p, FWHM_list, g_unfit, g_fit, base_model
 
 
 # Combined the upload and splash-ml data graphs into one callback to simplify
@@ -580,12 +612,13 @@ def update_output(
         Output({'type': 'tag_table', 'index': MATCH}, 'data'),
         Output({'type': 'graph', 'index': MATCH}, 'figure'),
         Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
+        State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
         State({'type': 'input_peaks', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         prevent_initial_call=True)
-def apply_tags_table(n_clicks, rows, tag, num_peaks, figure):
+def apply_tags_table(n_clicks, baseline, rows, tag, num_peaks, figure):
     peaks = None
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
@@ -600,10 +633,17 @@ def apply_tags_table(n_clicks, rows, tag, num_peaks, figure):
                 end = i+1
                 break
 
-        peaks, peak_fits, g_unfit, g_fit, cwt_img = get_peaks(
-                x_data[start:end],
-                y_data[start:end],
-                num_peaks)
+        if baseline is None or len(baseline) == 0:
+            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+                    x_data[start:end],
+                    y_data[start:end],
+                    num_peaks)
+        else:
+            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+                    x_data[start:end],
+                    y_data[start:end],
+                    num_peaks,
+                    True)
 
         for i in range(len(peaks)):
             index = peaks[i]+start
@@ -621,7 +661,8 @@ def apply_tags_table(n_clicks, rows, tag, num_peaks, figure):
         x_data = figure['data'][0]['x']
         y_data = figure['data'][0]['y']
 
-        figure = update_annotation_helper(rows, x_data, y_data, g_unfit, g_fit)
+        figure = update_annotation_helper(
+                rows, x_data, y_data, g_unfit, g_fit, base_model)
 
     return rows, figure
 
