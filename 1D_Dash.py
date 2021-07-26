@@ -23,10 +23,13 @@ import requests
 import json
 
 from packages.targeted_callbacks import targeted_callback
+from packages.hitp import bayesian_block_finder
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+
+global stash_figure
 
 # the style arguments for the sidebar. We use position:fixed and a fixed width
 SIDEBAR_STYLE = {
@@ -405,6 +408,8 @@ def parse_contents(contents, filename, date, index):
                     {'label': 'Apply Baseline to Peak Fitting',
                         'value': 'Apply Baseline to Data'}],
                 style={'padding-left': '3rem'}),
+            html.H6(children=['Only select peak number if you tag window'],
+                    style={'padding-left': '3rem'}),
             html.Div(
                 children=[
                     html.H6('Select peaks to find in'),
@@ -420,9 +425,13 @@ def parse_contents(contents, filename, date, index):
                         placeholder='Tag Name'),
                     html.Button(
                         id={'type': 'apply_labels', 'index': index},
-                        children='Add Tag',
+                        children='Tag Window',
                         style={
-                            'padding-bottom': '3rem'})],
+                            'padding-bottom': '3rem'}),
+                    html.Button(
+                        id={'type': 'block_tag', 'index': index},
+                        children='Tag w/ blocks',
+                        style={'padding-left': '3rem'})],
                 style={
                     'width': '30rem',
                     'padding': '3rem 3rem 3rem 3rem',
@@ -448,7 +457,7 @@ def parse_contents(contents, filename, date, index):
                 style={
                     'margin-left': '33rem',
                     'margin-right': '2rem',
-                    'padding': '3rem 3rem'})]
+                    'padding': '8rem 3rem 3rem 3rem'})]
 
     return html.Div(
             children=graphData,
@@ -476,24 +485,12 @@ def save_local_file(rows_of_tags, file_name):
     return res
 
 
-# Takes x,y data, find the peaks and fits Gassuian curves to them.
-# Returns location of peaks and full width half max
-# Takes x,y data, find the peaks and fits Gassuian curves to them.
-# Returns location of peaks and full width half max
-def get_peaks(x_data, y_data, num_peaks, baseline=None):
-    base_model = None
-    if baseline:
-        slope = (y_data[-1] - y_data[0])/(x_data[-1] - x_data[0])
-        intercept = y_data[0] - (slope * x_data[0])
-        base_model = models.Linear1D(slope=slope, intercept=intercept)
-        for i in range(len(y_data)):
-            y_data[i] = y_data[i] - base_model(x_data[i])
-
+def peak_helper(x_data, y_data, num_peaks):
     total_p = signal.find_peaks_cwt(y_data, 1)
     total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
     total_img = np.log(total_img+1)
     if len(total_p) == 0:
-        return [], []
+        return [], [], None, None
     temp_list = []
     return_p = []
     if len(total_p > num_peaks):
@@ -526,7 +523,6 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None):
             g_unfit = g_init
         else:
             g_unfit = g_unfit+g_init
-    # If all else isnt working, check this again it might be an issue
     fit_g = fitting.SimplexLSQFitter()
     if len(return_p) == 1:
         fit_g = fitting.LevMarLSQFitter()
@@ -540,7 +536,53 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None):
             FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
             FWHM_list[-1] = FWHM_list[-1].value
 
-    return return_p, FWHM_list, g_unfit, g_fit, base_model
+    return return_p, FWHM_list, g_unfit, g_fit
+
+
+# Takes x,y data, find the peaks and fits Gassuian curves to them.
+# Returns location of peaks and full width half max
+# Takes x,y data, find the peaks and fits Gassuian curves to them.
+# Returns location of peaks and full width half max
+def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
+    base_model = None
+    # Linear Model from data on the left wall of the window to data on the
+    # right wall of the window
+    if baseline:
+        slope = (y_data[-1] - y_data[0])/(x_data[-1] - x_data[0])
+        intercept = y_data[0] - (slope * x_data[0])
+        base_model = models.Linear1D(slope=slope, intercept=intercept)
+        for i in range(len(y_data)):
+            y_data[i] = y_data[i] - base_model(x_data[i])
+
+    FWHM_list = []
+    peak_list = []
+
+    if block:
+        boundaries = bayesian_block_finder(np.array(x_data), np.array(y_data))
+        for bound_i in range(len(boundaries)):
+            lower = int(boundaries[bound_i])
+            if bound_i == (len(boundaries)-1):
+                upper = len(x_data)
+            else:
+                upper = int(boundaries[bound_i+1])
+            temp_x = x_data[lower:upper]
+            temp_y = y_data[lower:upper]
+            temp_peak, temp_FWHM, unfit, fit = peak_helper(
+                    temp_x,
+                    temp_y,
+                    3)
+            temp_peak = [i+lower for i in temp_peak]
+            FWHM_list.extend(temp_FWHM)
+            peak_list.extend(temp_peak)
+        print(peak_list)
+        print(FWHM_list)
+        return peak_list, FWHM_list, None, None, base_model
+    peak_list, FWHM_list, g_unfit, g_fit = peak_helper(
+                    x_data,
+                    y_data,
+                    num_peaks)
+
+    return peak_list, FWHM_list, g_unfit, g_fit, base_model
 
 
 # Combined the upload and splash-ml data graphs into one callback to simplify
@@ -607,17 +649,14 @@ def update_output(
 
 # Tag callback for when the graph is from uploaded data.  Updates the tag table
 # and saves it in current session
-@app.callback(
-        Output({'type': 'tag_table', 'index': MATCH}, 'data'),
-        Output({'type': 'graph', 'index': MATCH}, 'figure'),
-        Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
-        State({'type': 'baseline', 'index': MATCH}, 'value'),
-        State({'type': 'tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'input_tags', 'index': MATCH}, 'value'),
-        State({'type': 'input_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'graph', 'index': MATCH}, 'figure'),
-        prevent_initial_call=True)
-def apply_tags_table(n_clicks, baseline, rows, tag, num_peaks, figure):
+def single_tags_table(n_clicks):
+    input_states = dash.callback_context.states
+    state_iter = iter(input_states.values())
+    baseline = next(state_iter)
+    rows = next(state_iter)
+    tag = next(state_iter)
+    num_peaks = next(state_iter)
+    figure = next(state_iter)
     peaks = None
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
@@ -642,10 +681,10 @@ def apply_tags_table(n_clicks, baseline, rows, tag, num_peaks, figure):
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
-                    True)
+                    baseline=True)
 
         for i in range(len(peaks)):
-            index = peaks[i]+start
+            index = int(peaks[i]+start)
             x, y = x_data[index], y_data[index]
             fwhm = peak_fits[i]
             temp = dict(
@@ -663,7 +702,98 @@ def apply_tags_table(n_clicks, baseline, rows, tag, num_peaks, figure):
         figure = update_annotation_helper(
                 rows, x_data, y_data, g_unfit, g_fit, base_model)
 
-    return rows, figure
+        global stash_figure
+        stash_figure = figure
+
+    return rows
+
+
+targeted_callback(
+    single_tags_table,
+    Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
+    Output({'type': 'tag_table', 'index': MATCH}, 'data'),
+    State({'type': 'baseline', 'index': MATCH}, 'value'),
+    State({'type': 'tag_table', 'index': MATCH}, 'data'),
+    State({'type': 'input_tags', 'index': MATCH}, 'value'),
+    State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+    State({'type': 'graph', 'index': MATCH}, 'figure'),
+    app=app)
+
+
+def multi_tags_table(n_clicks):
+    input_states = dash.callback_context.states
+    state_iter = iter(input_states.values())
+    baseline = next(state_iter)
+    rows = next(state_iter)
+    tag = next(state_iter)
+    # I try deleting this and the state that goes with it, but it breaks the
+    # function each time... I dont know why
+    num_peaks = next(state_iter)
+    figure = next(state_iter)
+    peaks = None
+    if n_clicks and tag:
+        x1 = figure['layout']['xaxis']['range'][0]
+        x2 = figure['layout']['xaxis']['range'][1]
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+        start, end = 0, len(x_data)
+        for i in range(len(x_data)):
+            if x_data[i] >= x1 and start == 0:
+                start = i
+            if x_data[i] >= x2:
+                end = i+1
+                break
+
+        if baseline is None or len(baseline) == 0:
+            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+                    x_data[start:end],
+                    y_data[start:end],
+                    3,
+                    block=True)
+        else:
+            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+                    x_data[start:end],
+                    y_data[start:end],
+                    3,
+                    baseline=True,
+                    block=True)
+
+        for i in range(len(peaks)):
+            index = int(peaks[i]+start)
+            x, y = x_data[index], y_data[index]
+            fwhm = peak_fits[i]
+            temp = dict(
+                    Tag=tag,
+                    Peak=str(x)+', '+str(y),
+                    FWHM=str(fwhm))
+            if rows:
+                rows.append(temp)
+            else:
+                rows = [temp]
+
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+
+        figure = update_annotation_helper(
+                rows, x_data, y_data, g_unfit, g_fit, base_model)
+
+        global stash_figure
+        stash_figure = figure
+    num_peaks = num_peaks
+
+    return rows
+
+
+targeted_callback(
+    multi_tags_table,
+    Input({'type': 'block_tag', 'index': MATCH}, 'n_clicks'),
+    Output({'type': 'tag_table', 'index': MATCH}, 'data'),
+    State({'type': 'baseline', 'index': MATCH}, 'value'),
+    State({'type': 'tag_table', 'index': MATCH}, 'data'),
+    State({'type': 'input_tags', 'index': MATCH}, 'value'),
+    State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+    State({'type': 'graph', 'index': MATCH}, 'figure'),
+    app=app)
 
 
 # Tag table callback for when the graph is from uploaded data.  Downloads the
@@ -772,7 +902,29 @@ def splash_graph_scale(action_dict, data, figure):
         'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
 
 
-# Populates the graph with tags and the peak locations for splash upload
+# populates the graph with tags and the peak locations for splash upload
+def update_graph_annotation(rows):
+    global stash_figure
+    if stash_figure is not None:
+        fig = stash_figure
+        stash_figure = None
+        return fig
+    input_states = dash.callback_context.states
+    figure = next(iter(input_states.values()))
+    x_data = figure['data'][0]['x']
+    y_data = figure['data'][0]['y']
+    return update_annotation_helper(rows, x_data, y_data)
+
+
+targeted_callback(
+    update_graph_annotation,
+    Input({'type': 'tag_table', 'index': MATCH}, 'data'),
+    Output({'type': 'graph', 'index': MATCH}, 'figure'),
+    State({'type': 'graph', 'index': MATCH}, 'figure'),
+    app=app)
+
+
+# populates the graph with tags and the peak locations for splash upload
 def update_splash_annotation(rows):
     input_states = dash.callback_context.states
     figure = next(iter(input_states.values()))
