@@ -782,6 +782,8 @@ def single_tags_table(n_clicks):
             index = i['index']+start
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
+            if i['flag'] == 1:
+                tag = '(F)'+tag
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -858,6 +860,8 @@ def multi_tags_table(n_clicks):
             index = i['index']+start
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
+            if i['flag'] == 1:
+                tag = '(F)'+tag
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -950,6 +954,8 @@ def single_tags_splash(n_clicks):
             index = i['index']+start
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
+            if i['flag'] == 1:
+                tag = '(F)'+tag
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -1026,6 +1032,8 @@ def multi_tags_splash(n_clicks):
             index = i['index']+start
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
+            if i['flag'] == 1:
+                tag = '(F)'+tag
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
