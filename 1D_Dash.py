@@ -519,7 +519,7 @@ def peak_helper(x_data, y_data, num_peaks):
     total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
     total_img = np.log(total_img+1)
     if len(total_p) == 0:
-        return [], [], None, None
+        return [], [], [], None, None
     temp_list = []
     return_p = []
     if len(total_p > num_peaks):
@@ -612,7 +612,7 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
                 upper = int(boundaries[bound_i+1])
             temp_x = x_data[lower:upper]
             temp_y = y_data[lower:upper]
-            temp_peak, temp_FWHM, unfit, temp_flag, fit = peak_helper(
+            temp_peak, temp_FWHM, temp_flag, unfit, fit = peak_helper(
                     temp_x,
                     temp_y,
                     3)
@@ -783,11 +783,15 @@ def single_tags_table(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                tag = '(F)'+tag
-            temp = dict(
-                    Tag=tag,
-                    Peak=str(x)+', '+str(y),
-                    FWHM=str(fwhm))
+                temp = dict(
+                        Tag='(F)'+tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
+            else:
+                temp = dict(
+                        Tag=tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
             if rows:
                 rows.append(temp)
             else:
@@ -861,11 +865,15 @@ def multi_tags_table(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                tag = '(F)'+tag
-            temp = dict(
-                    Tag=tag,
-                    Peak=str(x)+', '+str(y),
-                    FWHM=str(fwhm))
+                temp = dict(
+                        Tag='(F)'+tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
+            else:
+                temp = dict(
+                        Tag=tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
             if rows:
                 rows.append(temp)
             else:
@@ -955,11 +963,15 @@ def single_tags_splash(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                tag = '(F)'+tag
-            temp = dict(
-                    Tag=tag,
-                    Peak=str(x)+', '+str(y),
-                    FWHM=str(fwhm))
+                temp = dict(
+                        Tag='(F)'+tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
+            else:
+                temp = dict(
+                        Tag=tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
             if rows:
                 rows.append(temp)
             else:
@@ -1028,16 +1040,20 @@ def multi_tags_splash(n_clicks):
                     baseline=True,
                     block=True)
 
-        for i in range(len(peak_info)):
+        for i in peak_info:
             index = i['index']+start
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                tag = '(F)'+tag
-            temp = dict(
-                    Tag=tag,
-                    Peak=str(x)+', '+str(y),
-                    FWHM=str(fwhm))
+                temp = dict(
+                        Tag='(F)'+tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
+            else:
+                temp = dict(
+                        Tag=tag,
+                        Peak=str(x)+', '+str(y),
+                        FWHM=str(fwhm))
             if rows:
                 rows.append(temp)
             else:
