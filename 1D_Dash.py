@@ -22,13 +22,16 @@ import urllib.request
 import requests
 import json
 
+# Imported code by Ronald Pandolfi
 from packages.targeted_callbacks import targeted_callback
+# Imported code by Robert Tang-Kong
 from packages.hitp import bayesian_block_finder
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
+# Figure of graph when there are unfit and fit curves added on.
 global stash_figure
 stash_figure = None
 
@@ -110,8 +113,8 @@ app.layout = html.Div([sidebar, content])
 
 
 # splash-ml GET request with uri and tag paramaters.  The offset and limit
-# values are set to the default values of 0 and 10 at the moment as splash-ml
-# integration and use case isnt fully explored
+# values are hard coded at the moment as splash-ml integration and use case
+# isnt fully explored
 def splash_GET_call(uri, tags, offset, limit):
     url = 'http://127.0.0.1:8000/api/v0/datasets?'
     if uri:
@@ -136,7 +139,6 @@ def splash_PATCH_call(tag, uid, x, y, fwhm):
     data.append({
         'name': tag,
         'locator': str(x)+', '+str(y)+', '+str(fwhm)})
-    print(data)
     return requests.patch(url, json=data).status_code
 
 
@@ -177,7 +179,8 @@ def get_fig(x, y):
     return fig
 
 
-# Tagging graph code used by both splash-ml and local callbacks
+# Applying tags to graph along with baselines or fit curves from the peak
+# fitting calls
 def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
                              baseline=None):
     figure = get_fig(x, y)
@@ -218,7 +221,8 @@ def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
     return figure
 
 
-# parsing splash-ml files found.
+# parsing splash-ml files found and upload contents to content section of
+# webpage
 def parse_splash_ml(contents, filename, uid, tags, index):
 
     try:
@@ -362,7 +366,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                 'margin': '10px'})
 
 
-# Parsing uploaded files to display graphically on the website
+# Parsing uploaded files to display in content section of the website
 def parse_contents(contents, filename, date, index):
     content_type, content_string = contents.split(',')
 
@@ -508,7 +512,9 @@ def save_local_file(rows_of_tags, file_name):
     return res
 
 
+# The actual peak finding based off of x and y data provided
 def peak_helper(x_data, y_data, num_peaks):
+    flag_list = []
     total_p = signal.find_peaks_cwt(y_data, 1)
     total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
     total_img = np.log(total_img+1)
@@ -558,16 +564,31 @@ def peak_helper(x_data, y_data, num_peaks):
         for i in range(len(return_p)):
             FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
             FWHM_list[-1] = FWHM_list[-1].value
+    residual = 0
+    fit_total = 0
+    y_total = 0
+    for i in range(len(x_data)):
+        fit_total += g_fit(x_data[i])
+        y_total += y_data[i]
+    residual = fit_total/y_total
+    residual = abs(1-residual)
+    if residual > 0.15:
+        for i in return_p:
+            flag_list.append(1)
+    else:
+        for i in return_p:
+            flag_list.append(0)
 
-    return return_p, FWHM_list, g_unfit, g_fit
+    return return_p, FWHM_list, flag_list, g_unfit, g_fit
 
 
-# Takes x,y data, find the peaks and fits Gassuian curves to them.
-# Returns location of peaks and full width half max
-# Takes x,y data, find the peaks and fits Gassuian curves to them.
-# Returns location of peaks and full width half max
+# The logic on fitting peaks to data split up by blocks, or all the data
+# together.  If data is split by blocks, we attempt to fit 3 peaks to the
+# section
 def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
     base_model = None
+    g_unfit = None
+    g_fit = None
     # Linear Model from data on the left wall of the window to data on the
     # right wall of the window
     if baseline:
@@ -579,6 +600,7 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
 
     FWHM_list = []
     peak_list = []
+    flag_list = []
 
     if block:
         boundaries = bayesian_block_finder(np.array(x_data), np.array(y_data))
@@ -590,24 +612,34 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
                 upper = int(boundaries[bound_i+1])
             temp_x = x_data[lower:upper]
             temp_y = y_data[lower:upper]
-            temp_peak, temp_FWHM, unfit, fit = peak_helper(
+            temp_peak, temp_FWHM, unfit, temp_flag, fit = peak_helper(
                     temp_x,
                     temp_y,
                     3)
             temp_peak = [i+lower for i in temp_peak]
+            flag_list.extend(temp_flag)
             FWHM_list.extend(temp_FWHM)
             peak_list.extend(temp_peak)
-        print(peak_list)
-        print(FWHM_list)
-        return peak_list, FWHM_list, None, None, base_model
-    peak_list, FWHM_list, g_unfit, g_fit = peak_helper(
-                    x_data,
-                    y_data,
-                    num_peaks)
+    else:
+        peak_list, FWHM_list, flag_list, g_unfit, g_fit = peak_helper(
+                        x_data,
+                        y_data,
+                        num_peaks)
 
-    return peak_list, FWHM_list, g_unfit, g_fit, base_model
+    return_list = []
+    for i in range(len(peak_list)):
+        diction = {}
+        diction['index'] = peak_list[i]
+        diction['FWHM'] = FWHM_list[i]
+        diction['flag'] = flag_list[i]
+        return_list.append(diction)
+
+    return return_list, g_unfit, g_fit, base_model
 
 
+# A callback function that automatically scales the range of the interactive
+# graph.  This allows users to zoom in on the x scale and get a y scale that
+# allows for a better view of the data
 def zoom(change):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
@@ -631,6 +663,7 @@ def zoom(change):
     return figure
 
 
+# Targets the upload part of website
 targeted_callback(
         zoom,
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
@@ -639,6 +672,7 @@ targeted_callback(
         app=app)
 
 
+# Targets the splash-ml part of website
 targeted_callback(
         zoom,
         Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
@@ -648,7 +682,7 @@ targeted_callback(
 
 
 # Combined the upload and splash-ml data graphs into one callback to simplify
-# the whole process
+# the whole process (could be split into targeted callbacks for organization)
 @app.callback(
         Output('output_data_upload', 'children'),
         Output('upload_data', 'contents'),
@@ -710,7 +744,7 @@ def update_output(
 
 
 # Tag callback for when the graph is from uploaded data.  Updates the tag table
-# and saves it in current session
+# and saves it in current session. Handles window tagging
 def single_tags_table(n_clicks):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
@@ -719,7 +753,6 @@ def single_tags_table(n_clicks):
     tag = next(state_iter)
     num_peaks = next(state_iter)
     figure = next(state_iter)
-    peaks = None
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
         x2 = figure['layout']['xaxis']['range'][1]
@@ -734,21 +767,21 @@ def single_tags_table(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks)
         else:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
                     baseline=True)
 
-        for i in range(len(peaks)):
-            index = int(peaks[i]+start)
+        for i in peak_info:
+            index = i['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = peak_fits[i]
+            fwhm = i['FWHM']
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -782,6 +815,8 @@ targeted_callback(
         app=app)
 
 
+# Tag callback for when the graph is from uploaded data.  Updates the tag table
+# and saves it in current session.  Handles block tagging
 def multi_tags_table(n_clicks):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
@@ -792,7 +827,6 @@ def multi_tags_table(n_clicks):
     # function each time... I dont know why
     num_peaks = next(state_iter)
     figure = next(state_iter)
-    peaks = None
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
         x2 = figure['layout']['xaxis']['range'][1]
@@ -807,23 +841,23 @@ def multi_tags_table(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     3,
                     block=True)
         else:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     3,
                     baseline=True,
                     block=True)
 
-        for i in range(len(peaks)):
-            index = int(peaks[i]+start)
+        for i in peak_info:
+            index = i['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = peak_fits[i]
+            fwhm = i['FWHM']
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -876,10 +910,9 @@ def save_tags_button(n_clicks, rows, file_name):
         return None, html.Div('No Tags Selected')
 
 
-# Uploads tag to splash-ml along with adding to the tag table.  Order of the
-# table and splash-ml might be different but that shouldn't matter for the
-# current usecase.  This can be fixed by not adding a new tag right to the
-# table and instead doing a GET call to grab the tag order from splash-ml
+# Order of the table and splash-ml might be different but that shouldn't matter
+# for the current usecase.  Upload to splash-ml happens later, this only
+# handles adding window tagged data to table
 def single_tags_splash(n_clicks):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
@@ -902,21 +935,21 @@ def single_tags_splash(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks)
         else:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
                     baseline=True)
 
-        for i in range(len(peaks)):
-            index = peaks[i]+start
+        for i in peak_info:
+            index = i['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = peak_fits[i]
+            fwhm = i['FWHM']
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -950,6 +983,9 @@ targeted_callback(
         app=app)
 
 
+# Order of the table and splash-ml might be different but that shouldn't matter
+# for the current usecase.  Upload to splash-ml happens later, this only
+# handles adding block tagged data to table
 def multi_tags_splash(n_clicks):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
@@ -959,7 +995,6 @@ def multi_tags_splash(n_clicks):
     baseline = next(state_iter)
     figure = next(state_iter)
     num_peaks = num_peaks
-    print('wtf')
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
         x2 = figure['layout']['xaxis']['range'][1]
@@ -974,23 +1009,23 @@ def multi_tags_splash(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     3,
                     block=True)
         else:
-            peaks, peak_fits, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, g_unfit, g_fit, base_model = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     3,
                     baseline=True,
                     block=True)
 
-        for i in range(len(peaks)):
-            index = peaks[i]+start
+        for i in range(len(peak_info)):
+            index = i['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = peak_fits[i]
+            fwhm = i['FWHM']
             temp = dict(
                     Tag=tag,
                     Peak=str(x)+', '+str(y),
@@ -1023,6 +1058,9 @@ targeted_callback(
         app=app)
 
 
+# Handles upload of table data to splash-ml.  It first does a GET call, and
+# then compares to figure out what data needs to be uploaded.  Currently no
+# way to really compare tag to tag, so I just compare size of tag list
 def update_splash_data(n_clicks):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
