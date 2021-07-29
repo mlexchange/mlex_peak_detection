@@ -173,7 +173,7 @@ def get_fig(x, y):
                 type='linear'),
              yaxis=dict(
                  autorange=False,
-                 range=[np.amin(x)-20, np.amax(y)+20],
+                 range=[np.amin(x)-30, np.amax(y)+30],
                  fixedrange=False))
 
     return fig
@@ -210,6 +210,12 @@ def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
                         y=g_fit(x)+baseline(x),
                         mode='lines',
                         name='fit'))
+            figure.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=(y-g_fit(x)),
+                        mode='lines',
+                        name='residual'))
     else:
         if g_unfit is not None:
             figure.add_trace(
@@ -217,6 +223,12 @@ def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
         if g_fit is not None:
             figure.add_trace(
                     go.Scatter(x=x, y=g_fit(x), mode='lines', name='fit'))
+            figure.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=(y-g_fit(x)),
+                        mode='lines',
+                        name='residual'))
 
     return figure
 
@@ -658,7 +670,7 @@ def zoom(change):
             break
     in_view = y_data[start:end]
     in_view = np.array(in_view)
-    y_range = [np.amin(in_view)-20, np.amax(in_view)+20]
+    y_range = [np.amin(in_view)-30, np.amax(in_view)+30]
     figure['layout']['yaxis']['range'] = y_range
     return figure
 
@@ -931,7 +943,9 @@ def single_tags_splash(n_clicks):
     rows = next(state_iter)
     tag = next(state_iter)
     num_peaks = next(state_iter)
+    print(num_peaks)
     baseline = next(state_iter)
+    print(baseline)
     figure = next(state_iter)
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
@@ -996,7 +1010,7 @@ targeted_callback(
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
         State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'baseline', 'index': MATCH}, 'children'),
+        State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -1077,7 +1091,7 @@ targeted_callback(
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
         State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'splash_uid', 'index': MATCH}, 'children'),
+        State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -1150,6 +1164,8 @@ def splash_graph_scale(action_dict, data, figure):
 
 
 # populates the graph with tags and the peak locations for splash upload
+# Optimization Issue with deleting lots of tags... Code runs, but the graph
+# updates really slowly when the whole graph is updated
 def update_graph_annotation(rows):
     global stash_figure
     if stash_figure:
@@ -1160,6 +1176,10 @@ def update_graph_annotation(rows):
     figure = next(iter(input_states.values()))
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
+#   if '_template' in figure['layout']['xaxis']['rangeslider']['yaxis']:
+#       del figure['layout']['xaxis']['rangeslider']['yaxis']['_template']
+#   figure = go.Figure(figure)
+
     return update_annotation_helper(rows, x_data, y_data)
 
 
