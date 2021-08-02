@@ -321,15 +321,26 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             html.H6(
                 id={'type': 'splash_uid', 'index': index},
                 children='uid: '+uid),
-
             # Graph of csv file
             graph,
+            # Auto resize Y-Axis
+            dcc.Checklist(
+                id={'type': 'splash_resize', 'index': index},
+                options=[
+                    {'label': 'Autoscale Y-Axis',
+                        'value': 'Autoscale Y-Axis'}],
+                value=['Autoscale Y-Axis'],
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             dcc.Checklist(
                 id={'type': 'baseline', 'index': index},
                 options=[
                     {'label': 'Apply Baseline to Peak Fitting',
                         'value': 'Apply Baseline to Data'}],
-                style={'padding-left': '3rem'}),
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             html.H6(children=['Only select peak number if you tag window'],
                     style={'padding-left': '3rem'}),
             html.Div(
@@ -450,15 +461,26 @@ def parse_contents(contents, filename, date, index):
                 id={'type': 'filename', 'index': index},
                 children=filename),
             html.H6(datetime.datetime.fromtimestamp(date)),
-
             # Graph of csv file
             graph,
+            # Auto resize the Y-Axis
+            dcc.Checklist(
+                id={'type': 'resize', 'index': index},
+                options=[
+                    {'label': 'Autoscale Y-Axis',
+                        'value': 'Autoscale Y-Axis'}],
+                value=['Autoscale Y-Axis'],
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             dcc.Checklist(
                 id={'type': 'baseline', 'index': index},
                 options=[
                     {'label': 'Apply Baseline to Peak Fitting',
                         'value': 'Apply Baseline to Data'}],
-                style={'padding-left': '3rem'}),
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             html.H6(children=['Only select peak number if you tag window'],
                     style={'padding-left': '3rem'}),
             html.Div(
@@ -700,23 +722,25 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
 def zoom(change):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
+    check = next(state_iter)
     figure = next(state_iter)
-    y_range = figure['layout']['yaxis']['range']
-    x_range = figure['layout']['xaxis']['range']
-    x_data = figure['data'][0]['x']
-    y_data = figure['data'][0]['y']
-    start = 0
-    end = len(x_data) - 1
-    for i in range(len(x_data)):
-        if x_data[i] >= x_range[0] and start == 0:
-            start = i
-        if x_data[i] >= x_range[1]:
-            end = i+1
-            break
-    in_view = y_data[start:end]
-    in_view = np.array(in_view)
-    y_range = [np.amin(in_view)-30, np.amax(in_view)+30]
-    figure['layout']['yaxis']['range'] = y_range
+    if check:
+        y_range = figure['layout']['yaxis']['range']
+        x_range = figure['layout']['xaxis']['range']
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+        start = 0
+        end = len(x_data) - 1
+        for i in range(len(x_data)):
+            if x_data[i] >= x_range[0] and start == 0:
+                start = i
+            if x_data[i] >= x_range[1]:
+                end = i+1
+                break
+        in_view = y_data[start:end]
+        in_view = np.array(in_view)
+        y_range = [np.amin(in_view)-30, np.amax(in_view)+30]
+        figure['layout']['yaxis']['range'] = y_range
     return figure
 
 
@@ -725,6 +749,17 @@ targeted_callback(
         zoom,
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
         Output({'type': 'graph', 'index': MATCH}, 'figure'),
+        State({'type': 'resize', 'index': MATCH}, 'value'),
+        State({'type': 'graph', 'index': MATCH}, 'figure'),
+        app=app)
+
+
+# Targets the upload part of website
+targeted_callback(
+        zoom,
+        Input({'type': 'resize', 'index': MATCH}, 'value'),
+        Output({'type': 'graph', 'index': MATCH}, 'figure'),
+        State({'type': 'resize', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -734,6 +769,17 @@ targeted_callback(
         zoom,
         Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
         Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        State({'type': 'splash_resize', 'index': MATCH}, 'value'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        app=app)
+
+
+# Targets the splash-ml part of website
+targeted_callback(
+        zoom,
+        Input({'type': 'splash_resize', 'index': MATCH}, 'value'),
+        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        State({'type': 'splash_resize', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
