@@ -181,8 +181,8 @@ def get_fig(x, y):
 
 # Applying tags to graph along with baselines or fit curves from the peak
 # fitting calls
-def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
-                             baseline=None):
+def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
+                             residual=None, base_list=None):
     figure = get_fig(x, y)
     if rows:
         for i in rows:
@@ -193,40 +193,52 @@ def update_annotation_helper(rows, x, y, g_unfit=None, g_fit=None,
                     line_width=1,
                     line_color='purple',
                     annotation_text=name)
-    if baseline is not None:
+    if base_list:
         figure.add_trace(
-                go.Scatter(x=x, y=baseline(x), mode='lines', name='baseline'))
-        if g_unfit is not None:
+                go.Scatter(
+                    x=base_list[0],
+                    y=base_list[1],
+                    mode='lines',
+                    name='baseline'))
+        if unfit_list is not None:
             figure.add_trace(
                     go.Scatter(
-                        x=x,
-                        y=g_unfit(x)+baseline(x),
+                        x=unfit_list[0],
+                        y=unfit_list[1]+base_list[1],
                         mode='lines',
                         name='unfit'))
-        if g_fit is not None:
+        if fit_list is not None:
             figure.add_trace(
                     go.Scatter(
-                        x=x,
-                        y=g_fit(x)+baseline(x),
+                        x=fit_list[0],
+                        y=fit_list[1]+base_list[1],
                         mode='lines',
                         name='fit'))
             figure.add_trace(
                     go.Scatter(
-                        x=x,
-                        y=(y-g_fit(x)),
+                        x=residual[0],
+                        y=residual[1],
                         mode='lines',
                         name='residual'))
     else:
-        if g_unfit is not None:
-            figure.add_trace(
-                    go.Scatter(x=x, y=g_unfit(x), mode='lines', name='unfit'))
-        if g_fit is not None:
-            figure.add_trace(
-                    go.Scatter(x=x, y=g_fit(x), mode='lines', name='fit'))
+        if unfit_list is not None:
             figure.add_trace(
                     go.Scatter(
-                        x=x,
-                        y=(y-g_fit(x)),
+                        x=unfit_list[0],
+                        y=unfit_list[1],
+                        mode='lines',
+                        name='unfit'))
+        if fit_list is not None:
+            figure.add_trace(
+                    go.Scatter(
+                        x=fit_list[0],
+                        y=fit_list[1],
+                        mode='lines',
+                        name='fit'))
+            figure.add_trace(
+                    go.Scatter(
+                        x=residual[0],
+                        y=residual[1],
                         mode='lines',
                         name='residual'))
 
@@ -309,15 +321,26 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             html.H6(
                 id={'type': 'splash_uid', 'index': index},
                 children='uid: '+uid),
-
             # Graph of csv file
             graph,
+            # Auto resize Y-Axis
+            dcc.Checklist(
+                id={'type': 'splash_resize', 'index': index},
+                options=[
+                    {'label': 'Autoscale Y-Axis',
+                        'value': 'Autoscale Y-Axis'}],
+                value=['Autoscale Y-Axis'],
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             dcc.Checklist(
                 id={'type': 'baseline', 'index': index},
                 options=[
                     {'label': 'Apply Baseline to Peak Fitting',
                         'value': 'Apply Baseline to Data'}],
-                style={'padding-left': '3rem'}),
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             html.H6(children=['Only select peak number if you tag window'],
                     style={'padding-left': '3rem'}),
             html.Div(
@@ -438,15 +461,26 @@ def parse_contents(contents, filename, date, index):
                 id={'type': 'filename', 'index': index},
                 children=filename),
             html.H6(datetime.datetime.fromtimestamp(date)),
-
             # Graph of csv file
             graph,
+            # Auto resize the Y-Axis
+            dcc.Checklist(
+                id={'type': 'resize', 'index': index},
+                options=[
+                    {'label': 'Autoscale Y-Axis',
+                        'value': 'Autoscale Y-Axis'}],
+                value=['Autoscale Y-Axis'],
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             dcc.Checklist(
                 id={'type': 'baseline', 'index': index},
                 options=[
                     {'label': 'Apply Baseline to Peak Fitting',
                         'value': 'Apply Baseline to Data'}],
-                style={'padding-left': '3rem'}),
+                style={
+                    'padding-left': '3rem',
+                    'width': 'fit-content'}),
             html.H6(children=['Only select peak number if you tag window'],
                     style={'padding-left': '3rem'}),
             html.Div(
@@ -584,7 +618,7 @@ def peak_helper(x_data, y_data, num_peaks):
         y_total += y_data[i]
     residual = fit_total/y_total
     residual = abs(1-residual)
-    if residual > 0.15:
+    if residual > 0.10:
         for i in return_p:
             flag_list.append(1)
     else:
@@ -598,17 +632,24 @@ def peak_helper(x_data, y_data, num_peaks):
 # together.  If data is split by blocks, we attempt to fit 3 peaks to the
 # section
 def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
+    base_list = None
+    unfit_list = [[], []]
+    fit_list = [[], []]
+    residual = [[], []]
     base_model = None
     g_unfit = None
     g_fit = None
     # Linear Model from data on the left wall of the window to data on the
     # right wall of the window
     if baseline:
+        base_list = [[], []]
         slope = (y_data[-1] - y_data[0])/(x_data[-1] - x_data[0])
         intercept = y_data[0] - (slope * x_data[0])
         base_model = models.Linear1D(slope=slope, intercept=intercept)
         for i in range(len(y_data)):
             y_data[i] = y_data[i] - base_model(x_data[i])
+        base_list[0] = x_data
+        base_list[1] = y_data
 
     FWHM_list = []
     peak_list = []
@@ -627,16 +668,35 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
             temp_peak, temp_FWHM, temp_flag, unfit, fit = peak_helper(
                     temp_x,
                     temp_y,
-                    3)
+                    num_peaks)
             temp_peak = [i+lower for i in temp_peak]
             flag_list.extend(temp_flag)
             FWHM_list.extend(temp_FWHM)
             peak_list.extend(temp_peak)
+            unfit_list[0].extend(temp_x)
+            fit_list[0].extend(temp_x)
+            for i in temp_x:
+                if unfit is None:
+                    unfit_list[1].append(0)
+                    fit_list[1].append(0)
+                else:
+                    unfit_list[1].append(unfit(i))
+                    fit_list[1].append(fit(i))
+
     else:
         peak_list, FWHM_list, flag_list, g_unfit, g_fit = peak_helper(
                         x_data,
                         y_data,
                         num_peaks)
+        unfit_list[0].extend(x_data)
+        fit_list[0].extend(x_data)
+        for i in x_data:
+            if g_unfit is not None:
+                unfit_list[1].append(g_unfit(i))
+                fit_list[1].append(g_fit(i))
+            else:
+                unfit_list[1].append(0)
+                fit_list[1].append(0)
 
     return_list = []
     for i in range(len(peak_list)):
@@ -646,7 +706,14 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         diction['flag'] = flag_list[i]
         return_list.append(diction)
 
-    return return_list, g_unfit, g_fit, base_model
+    for i in fit_list:
+        residual[0].extend(fit_list[0])
+        temp_fit = np.array(fit_list[1])
+        temp_y = np.array(y_data)
+        resid = [temp_y-temp_fit]
+        residual[1].extend(resid)
+
+    return return_list, unfit_list, fit_list, residual, base_list
 
 
 # A callback function that automatically scales the range of the interactive
@@ -655,23 +722,25 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
 def zoom(change):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
+    check = next(state_iter)
     figure = next(state_iter)
-    y_range = figure['layout']['yaxis']['range']
-    x_range = figure['layout']['xaxis']['range']
-    x_data = figure['data'][0]['x']
-    y_data = figure['data'][0]['y']
-    start = 0
-    end = len(x_data) - 1
-    for i in range(len(x_data)):
-        if x_data[i] >= x_range[0] and start == 0:
-            start = i
-        if x_data[i] >= x_range[1]:
-            end = i+1
-            break
-    in_view = y_data[start:end]
-    in_view = np.array(in_view)
-    y_range = [np.amin(in_view)-30, np.amax(in_view)+30]
-    figure['layout']['yaxis']['range'] = y_range
+    if check:
+        y_range = figure['layout']['yaxis']['range']
+        x_range = figure['layout']['xaxis']['range']
+        x_data = figure['data'][0]['x']
+        y_data = figure['data'][0]['y']
+        start = 0
+        end = len(x_data) - 1
+        for i in range(len(x_data)):
+            if x_data[i] >= x_range[0] and start == 0:
+                start = i
+            if x_data[i] >= x_range[1]:
+                end = i+1
+                break
+        in_view = y_data[start:end]
+        in_view = np.array(in_view)
+        y_range = [np.amin(in_view)-30, np.amax(in_view)+30]
+        figure['layout']['yaxis']['range'] = y_range
     return figure
 
 
@@ -680,6 +749,17 @@ targeted_callback(
         zoom,
         Input({'type': 'graph', 'index': MATCH}, 'relayoutData'),
         Output({'type': 'graph', 'index': MATCH}, 'figure'),
+        State({'type': 'resize', 'index': MATCH}, 'value'),
+        State({'type': 'graph', 'index': MATCH}, 'figure'),
+        app=app)
+
+
+# Targets the upload part of website
+targeted_callback(
+        zoom,
+        Input({'type': 'resize', 'index': MATCH}, 'value'),
+        Output({'type': 'graph', 'index': MATCH}, 'figure'),
+        State({'type': 'resize', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -689,6 +769,17 @@ targeted_callback(
         zoom,
         Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
         Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        State({'type': 'splash_resize', 'index': MATCH}, 'value'),
+        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        app=app)
+
+
+# Targets the splash-ml part of website
+targeted_callback(
+        zoom,
+        Input({'type': 'splash_resize', 'index': MATCH}, 'value'),
+        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
+        State({'type': 'splash_resize', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -779,12 +870,12 @@ def single_tags_table(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks)
         else:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
@@ -813,7 +904,13 @@ def single_tags_table(n_clicks):
         y_data = figure['data'][0]['y']
 
         figure = update_annotation_helper(
-                rows, x_data, y_data, g_unfit, g_fit, base_model)
+                rows,
+                x_data,
+                y_data,
+                unfit_list,
+                fit_list,
+                residual,
+                base_list)
 
         global stash_figure
         stash_figure = figure
@@ -859,16 +956,16 @@ def multi_tags_table(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
-                    3,
+                    num_peaks,
                     block=True)
         else:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
-                    3,
+                    num_peaks,
                     baseline=True,
                     block=True)
 
@@ -895,7 +992,13 @@ def multi_tags_table(n_clicks):
         y_data = figure['data'][0]['y']
 
         figure = update_annotation_helper(
-                rows, x_data, y_data, g_unfit, g_fit, base_model)
+                rows,
+                x_data,
+                y_data,
+                unfit_list,
+                fit_list,
+                residual,
+                base_list)
 
         global stash_figure
         stash_figure = figure
@@ -943,9 +1046,7 @@ def single_tags_splash(n_clicks):
     rows = next(state_iter)
     tag = next(state_iter)
     num_peaks = next(state_iter)
-    print(num_peaks)
     baseline = next(state_iter)
-    print(baseline)
     figure = next(state_iter)
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
@@ -961,12 +1062,12 @@ def single_tags_splash(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks)
         else:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
@@ -995,7 +1096,13 @@ def single_tags_splash(n_clicks):
         y_data = figure['data'][0]['y']
 
         figure = update_annotation_helper(
-                rows, x_data, y_data, g_unfit, g_fit, base_model)
+                rows,
+                x_data,
+                y_data,
+                unfit_list,
+                fit_list,
+                residual,
+                base_list)
 
         global stash_figure
         stash_figure = figure
@@ -1041,16 +1148,16 @@ def multi_tags_splash(n_clicks):
                 break
 
         if baseline is None or len(baseline) == 0:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
-                    3,
+                    num_peaks,
                     block=True)
         else:
-            peak_info, g_unfit, g_fit, base_model = get_peaks(
+            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
-                    3,
+                    num_peaks,
                     baseline=True,
                     block=True)
 
@@ -1077,7 +1184,13 @@ def multi_tags_splash(n_clicks):
         y_data = figure['data'][0]['y']
 
         figure = update_annotation_helper(
-                rows, x_data, y_data, g_unfit, g_fit, base_model)
+                rows,
+                x_data,
+                y_data,
+                unfit_list,
+                fit_list,
+                residual,
+                base_list)
 
         global stash_figure
         stash_figure = figure
