@@ -21,6 +21,7 @@ services:
       - ./frontend/tmp:/app/tmp
     ports:
       - '8050:8050'
+      - '8000:8000'
 
   mongo:
     image: mongo
@@ -35,20 +36,20 @@ services:
     #  MONGO_INITDB_ROOT_USERNAME: root
     #  MONGO_INITDB_ROOT_PASSWORD: example
 
-  splash-ml:
-    restart: "unless-stopped"
-    container_name: "splash"
-    user: "${UID}:${GID}"
-    build:
-      context: 'splash-ml/'
-      dockerfile: 'docker/Dockerfile'
-    command: 'uvicorn tagging.api:app --host 0.0.0.0'
-    depends_on:
-      - "mongo"
-    volumes:
-      - ./splash-ml:/app/work
-    ports:
-      - '8000:8000'
+# splash-ml:
+#   restart: "unless-stopped"
+#   container_name: "splash"
+#   user: "${UID}:${GID}"
+#   build:
+#     context: 'splash-ml/'
+#     dockerfile: 'docker/Dockerfile'
+#   command: 'uvicorn tagging.api:app --host 0.0.0.0'
+#   depends_on:
+#     - "mongo"
+#   volumes:
+#     - ./splash-ml:/app/work
+#   ports:
+#     - '8000:8000'
 
 volumes: # create named dir and link it to the data folder, so all services can 
          # use
