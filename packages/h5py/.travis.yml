@@ -1,0 +1,48 @@
+language: python
+
+dist: xenial
+
+notifications:
+  email: false
+
+addons:
+  apt:
+    packages:
+      - libhdf5-serial-dev
+
+cache:
+  directories:
+    - $HOME/.cache/pip
+    - $HOME/.cache/hdf5
+    - $HOME/.ccache  # https://github.com/travis-ci/travis-ci/issues/5853
+
+env:
+  global:
+    - HDF5_CACHE_DIR=$HOME/.cache/hdf5
+
+matrix:
+  include:
+    # needed to work around https://github.com/travis-ci/travis-ci/issues/4794
+    # TODO: We should see if we can replace this with installing python via pyenv # based on toxenv
+    # Test on ppc64le
+    - python: 3.7
+      env:
+      - TOXENV=py37-test-deps
+      - HDF5_VERSION=1.10.5
+      - HDF5_DIR=$HDF5_CACHE_DIR/$HDF5_VERSION
+      - H5PY_ENFORCE_COVERAGE=yes
+      os: linux-ppc64le
+
+before_install:
+  # - export PATH=/usr/lib/ccache:$PATH
+  - ccache -s
+
+install:
+  - pip install -U tox codecov virtualenv
+  - ci/get_hdf5_if_needed.sh
+  - ls -lRa $HDF5_CACHE_DIR
+script:
+  - tox
+
+after_success:
+  - python ci/upload_coverage.py
