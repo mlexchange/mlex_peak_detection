@@ -15,9 +15,8 @@ test:
 build_docker: 
 	docker build -t ${IMG_WEB_SVC} -f ./docker/Dockerfile .
 	
-
 run_docker:
-	docker run --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --memory-swap -1 -it -v ${PWD}:/app/work/ -v ${PWD}/../data:/app/data -p 8052:8052 ${IMG_WEB_SVC}
+	docker run --mount source=${PWD}/data,target=/data,type=bind ${USER}/${PROJECT} python3 block_detection.py /data/input_data /data/results
 
 push_docker:
 	docker push ${IMG_WEB_SVC}
