@@ -1,0 +1,60 @@
+version: '3'
+
+services:
+  front-end:
+    restart: "unless-stopped"
+    container_name: "fronty"
+    user: "${UID}:${GID}"
+#   user: "1000:1000"
+    build:
+      context: 'frontend/'
+      dockerfile: 'docker/Dockerfile'
+    command: 'python src/1D_Dash.py'
+#   depends_on:      maybe need this for splash-ml
+#     - "mongodb"
+    environment:
+      DATA_DIR: "${COMPOSE_PROJECT_NAME}_data-m"
+    volumes:
+      - ./frontend/data:/app/work/data
+      - ./frontend/src:/app/work/src
+      - data-m:/data
+      - ./frontend/tmp:/app/tmp
+    ports:
+      - '8050:8050'
+
+  mongo:
+    image: mongo
+    restart: always
+    container_name: "mongodb"
+    working_dir: "/mongodbdata/"
+    ports:
+      - '27017:27017'
+    volumes:
+      - "./mongodbdata/:/data/db"
+    #environment
+    #  MONGO_INITDB_ROOT_USERNAME: root
+    #  MONGO_INITDB_ROOT_PASSWORD: example
+
+  splash-ml:
+    restart: "unless-stopped"
+    container_name: "splash"
+    user: "${UID}:${GID}"
+    build:
+      context: 'splash-ml/'
+      dockerfile: 'docker/Dockerfile'
+    command: 'uvicorn tagging.api:app --host 0.0.0.0'
+    depends_on:
+      - "mongo"
+    volumes:
+      - ./splash-ml:/app/work
+    ports:
+      - '8000:8000'
+
+volumes: # create named dir and link it to the data folder, so all services can 
+         # use
+  data-m:
+    driver: local
+    driver_opts:
+      type: "none"
+      device: "${PWD}/frontend/data/"
+      o: "bind"
