@@ -6,8 +6,13 @@ Repo for Carlson summer project: designing an ML tool for 1D XRD scattering data
 ## Description
 This docker container automatically finds the peaks within a group of 1D XRD data files.
 
+To do this create the following directories:
+
 Input file directory: automatic_detection/data/input_data
+
 Output file directory: automatic_detection/data/results
+
+The input file directory should contain the XRD files.
 
 ## Running
 First, let's create the image:
