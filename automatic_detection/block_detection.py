@@ -7,7 +7,7 @@ import argparse
 import glob
 import pathlib
 import math
-import packages.h5py as h5py
+import h5py
 from packages.hitp import bayesian_block_finder
 
 def peak_helper(x_data, y_data):
