@@ -6,4 +6,4 @@ pathlib
 fabio
 matplotlib
 cython
---no-binary=h5py h5py
+h5py
