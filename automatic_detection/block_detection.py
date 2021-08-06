@@ -119,6 +119,10 @@ if __name__ == '__main__':
             y_data = data[:, 1]
         else:
             y_data = []
+        if len(x_data) != len(y_data):
+            print('ERROR: x data and y data are different lengths')
+            print('ERROR: Skipping this file')
+            continue
         baseline = None
         block = None
         base_model = None
