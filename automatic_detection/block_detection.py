@@ -107,12 +107,15 @@ if __name__ == '__main__':
                 # Can't handle anything other than 3 columns for graphing
                 if len(df.columns) != 2:
                     raise
-            if filename.endswith('.npy'):
+            elif filename.endswith('.npy'):
                 # The user uploaded a numpy file
                 npyArr = np.load(filename)
                 df = pd.DataFrame({'Column1': npyArr})
+            else:
+                raise
         except Exception as e:
             print("There was an error processing this file: " + str(e))
+            continue
         data = pd.DataFrame.to_numpy(df)
         x_data = data[:, 0]
         if len(df.columns) == 2:
