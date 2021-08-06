@@ -1,29 +1,29 @@
 # 1D_xrd_ml
 Repo for Carlson summer project: designing an ML tool for 1D XRD scattering data
 
-# Docker: Automatic detection
+# Docker: 1D_XRD app
 
 ## Description
-This docker container automatically finds the peaks within a group of 1D XRD data files.
+This docker container automatically finds the peaks within a group of 1D XRD data files and runs a dash app for more percise peak detection.
 
 To do this create the following directories:
 
- - Input file directory: automatic_detection/data/input_data
+* Clone this directory into any location
+* Clone splash-ml at https://github.com/als-computing/splash-ml into the same directory 1D XRD exists in
 
- - Output file directory: automatic_detection/data/results
-
-The input file directory should contain the XRD files.
+Any data for automatic tagging should be under the data file.
 
 ## Running
-First, let's create the image:
-```
-cd automatic_detection
-make build_docker
-```
-Then execute:
-```
-make run_docker
-```
+First, let's install docker:
+
+* https://docs.docker.com/engine/install/
+* Next go into the 1D XRD dir
+* type `docker-compose up` into your terminal
+
+Next, open up the dash app or splash-ml API:
+
+* Dash app: http://0.0.0.0:8050/
+* Splash API: http://0.0.0.0:8000/api/splash_ml/docs
 
 Notes:
 - It is assumed that splash-ml handles the path to the dataset, such that file can be read, e.g. "C:/Users/..." vs "/mnt/c/Users/..."
