@@ -5,22 +5,31 @@ services:
     restart: "unless-stopped"
     container_name: "fronty"
     user: "${UID}:${GID}"
-#   user: "1000:1000"
     build:
       context: 'frontend/'
       dockerfile: 'docker/Dockerfile'
     command: 'python src/1D_Dash.py'
-#   depends_on:      maybe need this for splash-ml
-#     - "mongodb"
     environment:
       DATA_DIR: "${COMPOSE_PROJECT_NAME}_data-m"
     volumes:
-      - ./frontend/data:/app/work/data
+      - ./data:/app/work/data
       - ./frontend/src:/app/work/src
-      - data-m:/data
       - ./frontend/tmp:/app/tmp
     ports:
       - '8050:8050'
+
+  automatic-tags:
+    restart: "unless-stopped"
+    container_name: "autotag"
+    user: "${UID}:${GID}"
+    build:
+      context: 'automatic_detection/'
+      dockerfile: 'docker/Dockerfile'
+    command: 'python block_detection.py data data/results'
+    volumes:
+      - ./automatic_detection:/app/work
+      - ./data:/app/work/data
+      
 
   mongo:
     image: mongo
@@ -40,15 +49,17 @@ services:
     container_name: "splash"
     user: "${UID}:${GID}"
     build:
-      context: 'splash-ml/'
+      context: '../splash-ml/'
       dockerfile: 'docker/Dockerfile'
     command: 'uvicorn tagging.api:app --host 0.0.0.0'
     depends_on:
       - "mongo"
     volumes:
-      - ./splash-ml:/app/work
+      - ../splash-ml:/app/work
     ports:
       - '8000:8000'
+    environment:
+       MONGO_DB_URI: mongodb://mongodb:27017/tagging
 
 volumes: # create named dir and link it to the data folder, so all services can 
          # use

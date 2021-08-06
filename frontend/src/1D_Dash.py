@@ -119,7 +119,7 @@ app.layout = html.Div([sidebar, content])
 # values are hard coded at the moment as splash-ml integration and use case
 # isnt fully explored
 def splash_GET_call(uri, tags, offset, limit):
-    url = 'http://splash-ml:8000/api/v0/datasets?'
+    url = 'http://splash:8000/api/v0/datasets?'
     if uri:
         url += ('&uri='+uri)
     if tags:
@@ -137,7 +137,7 @@ def splash_GET_call(uri, tags, offset, limit):
 # Takes tags applied to data along wtih the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
 def splash_PATCH_call(tag, uid, x, y, fwhm):
-    url = 'http://127.0.0.1:8000/api/v0/datasets/'+uid+'/tags'
+    url = 'http://0.0.0.0/api/v0/datasets/'+uid+'/tags'
     data = []
     data.append({
         'name': tag,

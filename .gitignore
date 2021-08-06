@@ -128,7 +128,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-#.csv, .xdi, .npy data saved
+# Ignore data files
 *.csv
+*.png
+*.jpg
 *.xdi
 *.npy
