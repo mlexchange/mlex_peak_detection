@@ -7,8 +7,8 @@ import argparse
 import glob
 import pathlib
 import math
-import h5py
 from packages.hitp import bayesian_block_finder
+
 
 def peak_helper(x_data, y_data):
     num_peaks = 1
@@ -75,9 +75,11 @@ def peak_helper(x_data, y_data):
             flag_list.append(0)
     return return_p, FWHM_list, flag_list
 
+
 def save_local_file(data_path, tags_table, filename):
     # getting rid of .csv from file name to add _tags.csv to end
-    tags_file = filename[16:-4]+'_tags.csv'
+    tags_file = filename.split('/')[-1]
+    tags_file = tags_file[0:-4]+'_tags.csv'
     f = open(str(data_path)+tags_file, 'w')
     for i in tags_table:
         x1 = i['Peak'].split()[0][:-1]
@@ -85,6 +87,7 @@ def save_local_file(data_path, tags_table, filename):
         f.write(i['Tag']+','+x1+','+x2+','+i['FWHM']+','+i['flag']+'\n')
     f.close()
     pass
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -104,9 +107,6 @@ if __name__ == '__main__':
                 # Can't handle anything other than 3 columns for graphing
                 if len(df.columns) != 2:
                     raise
-            if filename.endswith('.xdi'):
-                # The user uploaded a XDI file
-                df = parseXDI(filename)
             if filename.endswith('.npy'):
                 # The user uploaded a numpy file
                 npyArr = np.load(filename)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
                 upper = int(boundaries[bound_i+1])
             temp_x = x_data[lower:upper]
             temp_y = y_data[lower:upper]
-            temp_peak, temp_FWHM, temp_flag = peak_helper(temp_x,temp_y)
+            temp_peak, temp_FWHM, temp_flag = peak_helper(temp_x, temp_y)
             temp_peak = [i+lower for i in temp_peak]
             flag_list.extend(temp_flag)
             FWHM_list.extend(temp_FWHM)
@@ -159,5 +159,5 @@ if __name__ == '__main__':
             diction['FWHM'] = str(FWHM_list[i])
             diction['flag'] = str(flag_list[i])
             return_list.append(diction)
-        save_local_file(OUTPUT_DIR, return_list, filename)
+        save_local_file(str(OUTPUT_DIR)+'/', return_list, filename)
         print('peaks found for: {}'.format(filename))
