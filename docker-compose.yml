@@ -5,22 +5,31 @@ services:
     restart: "unless-stopped"
     container_name: "fronty"
     user: "${UID}:${GID}"
-#   user: "1000:1000"
     build:
       context: 'frontend/'
       dockerfile: 'docker/Dockerfile'
     command: 'python src/1D_Dash.py'
-#   depends_on:      maybe need this for splash-ml
-#     - "mongodb"
     environment:
       DATA_DIR: "${COMPOSE_PROJECT_NAME}_data-m"
     volumes:
-      - ./frontend/data:/app/work/data
+      - ./data:/app/work/data
       - ./frontend/src:/app/work/src
-      - data-m:/data
       - ./frontend/tmp:/app/tmp
     ports:
       - '8050:8050'
+
+  automatic-tags:
+    restart: "unless-stopped"
+    container_name: "autotag"
+    user: "${UID}:${GID}"
+    build:
+      context: 'automatic_detection/'
+      dockerfile: 'docker/Dockerfile'
+    command: 'python block_detection.py data data/results'
+    volumes:
+      - ./automatic_detection:/app/work
+      - ./data:/app/work/data
+      
 
   mongo:
     image: mongo
