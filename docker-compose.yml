@@ -19,7 +19,6 @@ services:
       - '8050:8050'
 
   automatic-tags:
-    restart: "unless-stopped"
     container_name: "autotag"
     user: "${UID}:${GID}"
     build:
@@ -51,7 +50,6 @@ services:
     build:
       context: '../splash-ml/'
       dockerfile: 'docker/Dockerfile'
-    command: 'uvicorn tagging.api:app --host 0.0.0.0'
     depends_on:
       - "mongo"
     volumes:

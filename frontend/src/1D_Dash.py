@@ -137,7 +137,7 @@ def splash_GET_call(uri, tags, offset, limit):
 # Takes tags applied to data along wtih the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
 def splash_PATCH_call(tag, uid, x, y, fwhm):
-    url = 'http://0.0.0.0/api/v0/datasets/'+uid+'/tags'
+    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
     data = []
     data.append({
         'name': tag,
@@ -1225,7 +1225,7 @@ def update_splash_data(n_clicks):
     uri = uri[5:]
     uid = uid[5:]
     splash_data = splash_GET_call(uri, None, 0, 1)
-    if splash_data:
+    if splash_data and splash_data[0]['tags']:
         offset = len(splash_data[0]['tags'])
         rows = rows[offset:len(rows)]
     for i in rows:
@@ -1239,6 +1239,7 @@ def update_splash_data(n_clicks):
                 i['FWHM'])
         if response != 200:
             return html.Div('Response: '+str(response))
+    print('here we are babe')
     return html.Div('Response: 200')
 
 
