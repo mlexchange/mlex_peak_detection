@@ -217,6 +217,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
                         y=fit_list[1]+base_list[1],
                         mode='lines',
                         name='fit'))
+        if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
@@ -238,6 +239,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
                         y=fit_list[1],
                         mode='lines',
                         name='fit'))
+        if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
@@ -710,12 +712,11 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         diction['flag'] = flag_list[i]
         return_list.append(diction)
 
-    for i in fit_list:
-        residual[0].extend(fit_list[0])
-        temp_fit = np.array(fit_list[1])
-        temp_y = np.array(y_data)
-        resid = [temp_y-temp_fit]
-        residual[1].extend(resid)
+    residual[0].extend(fit_list[0])
+    temp_fit = np.array(fit_list[1])
+    temp_y = np.array(y_data)
+    resid = temp_y-temp_fit
+    residual[1].extend(resid)
 
     return return_list, unfit_list, fit_list, residual, base_list
 
