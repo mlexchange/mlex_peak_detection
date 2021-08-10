@@ -551,7 +551,6 @@ def parse_contents(contents, filename, date, index):
 def save_local_file(rows_of_tags, file_name):
     # getting rid of .csv from file name to add _tags.csv to end
     tags_file = file_name[:-4]+'_tags.csv'
-    print(DATA_DIR)
     f = open('/app/tmp/'+tags_file, 'w')
     for i in rows_of_tags:
         x1 = i['Peak'].split()[0][:-1]
@@ -1240,7 +1239,6 @@ def update_splash_data(n_clicks):
                 i['FWHM'])
         if response != 200:
             return html.Div('Response: '+str(response))
-    print('here we are babe')
     return html.Div('Response: 200')
 
 
@@ -1296,7 +1294,6 @@ def update_graph_annotation(rows):
         if str(i).endswith('.figure'):
             figure = dash.callback_context.states[i]
     # x_data = figure['data'][0]['x']
-    print(figure)
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
 #   if '_template' in figure['layout']['xaxis']['rangeslider']['yaxis']:
