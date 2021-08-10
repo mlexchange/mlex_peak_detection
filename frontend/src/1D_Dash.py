@@ -1292,7 +1292,11 @@ def update_graph_annotation(rows):
         stash_figure = None
         return fig
     input_states = dash.callback_context.states
-    figure = next(iter(input_states.values()))
+    for i in iter(input_states):
+        if str(i).endswith('.figure'):
+            figure = dash.callback_context.states[i]
+    # x_data = figure['data'][0]['x']
+    print(figure)
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
 #   if '_template' in figure['layout']['xaxis']['rangeslider']['yaxis']:
