@@ -35,6 +35,9 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 global stash_figure
 stash_figure = None
 
+global DATA_DIR
+DATA_DIR = os.environ['DATA_DIR']
+
 # the style arguments for the sidebar. We use position:fixed and a fixed width
 SIDEBAR_STYLE = {
         'position': 'fixed',
@@ -116,7 +119,7 @@ app.layout = html.Div([sidebar, content])
 # values are hard coded at the moment as splash-ml integration and use case
 # isnt fully explored
 def splash_GET_call(uri, tags, offset, limit):
-    url = 'http://127.0.0.1:8000/api/v0/datasets?'
+    url = 'http://splash:8000/api/v0/datasets?'
     if uri:
         url += ('&uri='+uri)
     if tags:
@@ -134,7 +137,7 @@ def splash_GET_call(uri, tags, offset, limit):
 # Takes tags applied to data along wtih the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
 def splash_PATCH_call(tag, uid, x, y, fwhm):
-    url = 'http://127.0.0.1:8000/api/v0/datasets/'+uid+'/tags'
+    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
     data = []
     data.append({
         'name': tag,
@@ -214,6 +217,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
                         y=fit_list[1]+base_list[1],
                         mode='lines',
                         name='fit'))
+        if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
@@ -235,6 +239,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
                         y=fit_list[1],
                         mode='lines',
                         name='fit'))
+        if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
@@ -546,15 +551,15 @@ def parse_contents(contents, filename, date, index):
 def save_local_file(rows_of_tags, file_name):
     # getting rid of .csv from file name to add _tags.csv to end
     tags_file = file_name[:-4]+'_tags.csv'
-    f = open('./'+tags_file, 'w')
+    f = open('/app/tmp/'+tags_file, 'w')
     for i in rows_of_tags:
         x1 = i['Peak'].split()[0][:-1]
         x2 = i['Peak'].split()[1]
         f.write(i['Tag']+','+x1+','+x2+','+i['FWHM']+'\n')
     f.close()
 
-    res = dcc.send_file('./'+tags_file)
-    os.remove('./'+tags_file)
+    res = dcc.send_file('/app/tmp/'+tags_file)
+    os.remove('/app/tmp/'+tags_file)
     return res
 
 
@@ -706,12 +711,11 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         diction['flag'] = flag_list[i]
         return_list.append(diction)
 
-    for i in fit_list:
-        residual[0].extend(fit_list[0])
-        temp_fit = np.array(fit_list[1])
-        temp_y = np.array(y_data)
-        resid = [temp_y-temp_fit]
-        residual[1].extend(resid)
+    residual[0].extend(fit_list[0])
+    temp_fit = np.array(fit_list[1])
+    temp_y = np.array(y_data)
+    resid = temp_y-temp_fit
+    residual[1].extend(resid)
 
     return return_list, unfit_list, fit_list, residual, base_list
 
@@ -1221,7 +1225,7 @@ def update_splash_data(n_clicks):
     uri = uri[5:]
     uid = uid[5:]
     splash_data = splash_GET_call(uri, None, 0, 1)
-    if splash_data:
+    if splash_data and splash_data[0]['tags']:
         offset = len(splash_data[0]['tags'])
         rows = rows[offset:len(rows)]
     for i in rows:
@@ -1286,7 +1290,10 @@ def update_graph_annotation(rows):
         stash_figure = None
         return fig
     input_states = dash.callback_context.states
-    figure = next(iter(input_states.values()))
+    for i in iter(input_states):
+        if str(i).endswith('.figure'):
+            figure = dash.callback_context.states[i]
+    # x_data = figure['data'][0]['x']
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
 #   if '_template' in figure['layout']['xaxis']['rangeslider']['yaxis']:
@@ -1327,4 +1334,4 @@ targeted_callback(
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, host='0.0.0.0')
