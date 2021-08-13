@@ -35,9 +35,6 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 global stash_figure
 stash_figure = None
 
-global DATA_DIR
-DATA_DIR = os.environ['DATA_DIR']
-
 # the style arguments for the sidebar. We use position:fixed and a fixed width
 SIDEBAR_STYLE = {
         'position': 'fixed',
@@ -207,21 +204,21 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
             figure.add_trace(
                     go.Scatter(
                         x=unfit_list[0],
-                        y=unfit_list[1]+base_list[1],
+                        y=(np.array(unfit_list[1])+np.array(base_list[1])),
                         mode='lines',
                         name='unfit'))
         if fit_list is not None:
             figure.add_trace(
                     go.Scatter(
                         x=fit_list[0],
-                        y=fit_list[1]+base_list[1],
+                        y=(np.array(fit_list[1])+np.array(base_list[1])),
                         mode='lines',
                         name='fit'))
         if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
-                        y=residual[1],
+                        y=(np.array(residual[1])+np.array(base_list[1])),
                         mode='lines',
                         name='residual'))
     else:
@@ -564,7 +561,7 @@ def save_local_file(rows_of_tags, file_name):
 
 
 # The actual peak finding based off of x and y data provided
-def peak_helper(x_data, y_data, num_peaks):
+def peak_helper(x_data, y_data, num_peaks, peak_type='g'):
     flag_list = []
     total_p = signal.find_peaks_cwt(y_data, 1)
     total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
@@ -592,13 +589,21 @@ def peak_helper(x_data, y_data, num_peaks):
                 largest_width = total_img[i_img][i]
         stddev = (largest_width*difference)/(2*math.sqrt(2*math.log(2)))
 
-        g_init = models.Gaussian1D(
-                amplitude=y_data[i],
-                mean=x_data[i],
-                stddev=stddev)
-        g_init.mean.min = float(x_data[0])
-        g_init.mean.max = float(x_data[-1])
-        g_init.amplitude.min = 0
+        if peak_type == 'v':
+            fwhm = 2*math.sqrt(2*math.log(2))*stddev
+            g_init = models.Voigt1D(
+                    x_0=x_data[i],
+                    amplitude_L=y_data[i],
+                    fwhm_L=fwhm,
+                    fwhm_G=fwhm)
+            print('voigt')
+
+        else:
+            g_init = models.Gaussian1D(
+                    amplitude=y_data[i],
+                    mean=x_data[i],
+                    stddev=stddev)
+
         if g_unfit is None:
             g_unfit = g_init
         else:
@@ -610,11 +615,34 @@ def peak_helper(x_data, y_data, num_peaks):
 
     FWHM_list = []
     if len(return_p) == 1:
-        FWHM_list.append(g_fit.stddev.value)
+        if peak_type == 'v':
+            fl = g_fit.fwhm_L.value
+            fg = g_fit.fwhm_G.value
+            print("Lor FWHM: "+str(fl))
+            print("Gau FWHM: "+str(fg))
+            phi = fl/fg
+            c0 = 2.0056
+            c1 = 1.0593
+            # Unsure if this FWHM equation works
+            # Brute force is an option with taking half height of max and
+            # finding two points the half height collids with
+            fwhm = abs(fg*(1-c0*c1+math.sqrt(phi**2+2*c1*phi+(c0+c1)**2)))
+            FWHM_list.append(fwhm)
+        else:
+            FWHM_list.append(g_fit.stddev.value)
     else:
         for i in range(len(return_p)):
-            FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
-            FWHM_list[-1] = FWHM_list[-1].value
+            if peak_type == 'v':
+                fl = getattr(g_fit, f"fwhm_L_{i}").value
+                fg = getattr(g_fit, f"fwhm_G_{i}").value
+                phi = fl/fg
+                c0 = 2.0056
+                c1 = 1.0593
+                fwhm = fg*(1-c0*c1+math.sqrt(phi**2+2*c1*phi+(c0+c1)**2))
+                FWHM_list.append(fwhm)
+            else:
+                FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
+                FWHM_list[-1] = FWHM_list[-1].value
     residual = 0
     fit_total = 0
     y_total = 0
@@ -652,9 +680,9 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         intercept = y_data[0] - (slope * x_data[0])
         base_model = models.Linear1D(slope=slope, intercept=intercept)
         for i in range(len(y_data)):
+            base_list[1].append(base_model(x_data[i]))
             y_data[i] = y_data[i] - base_model(x_data[i])
         base_list[0] = x_data
-        base_list[1] = y_data
 
     FWHM_list = []
     peak_list = []
@@ -670,16 +698,47 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
                 upper = int(boundaries[bound_i+1])
             temp_x = x_data[lower:upper]
             temp_y = y_data[lower:upper]
+
             temp_peak, temp_FWHM, temp_flag, unfit, fit = peak_helper(
                     temp_x,
                     temp_y,
                     num_peaks)
+
+            temp_fit = []
+            for i in temp_x:
+                if unfit is None:
+                    temp_fit.append(0)
+                else:
+                    temp_fit.append(fit(i))
+
+            resid = np.array(temp_y)-np.array(temp_fit)
+            chi_sqr = np.sum(np.divide(np.square(resid), np.array(temp_y)))
+            chi_sqr = np.sqrt(chi_sqr)
+            if chi_sqr > 10:
+                temp_peak, temp_FWHM, temp_flag, unfit, fit = peak_helper(
+                        temp_x,
+                        temp_y,
+                        num_peaks,
+                        peak_type='v')
+
+                temp_fit = []
+                for i in temp_x:
+                    if unfit is None:
+                        temp_fit.append(0)
+                    else:
+                        temp_fit.append(fit(i))
+                resid = np.array(temp_y)-np.array(temp_fit)
+
             temp_peak = [i+lower for i in temp_peak]
             flag_list.extend(temp_flag)
             FWHM_list.extend(temp_FWHM)
             peak_list.extend(temp_peak)
             unfit_list[0].extend(temp_x)
             fit_list[0].extend(temp_x)
+
+            residual[0].extend(temp_x)
+            residual[1].extend(resid)
+
             for i in temp_x:
                 if unfit is None:
                     unfit_list[1].append(0)
@@ -693,8 +752,36 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
                         x_data,
                         y_data,
                         num_peaks)
+
+        temp_fit = []
+        for i in x_data:
+            if g_unfit is None:
+                temp_fit.append(0)
+            else:
+                temp_fit.append(g_fit(i))
+
+        resid = np.array(y_data)-np.array(temp_fit)
+#       chi_sqr = np.sum(np.divide(np.square(resid), np.array(y_data)))
+#       chi_sqr = np.sqrt(chi_sqr)
+#       if chi_sqr > 10:
+#           temp_peak, temp_FWHM, temp_flag, g_unfit, g_fit = peak_helper(
+#                   x_data,
+#                   y_data,
+#                   num_peaks,
+#                   peak_type='v')
+#           temp_fit = []
+#           for i in x_data:
+#               if g_unfit is None:
+#                   temp_fit.append(0)
+#               else:
+#                   temp_fit.append(g_fit(i))
+
+#           resid = np.array(y_data)-np.array(temp_fit)
+
         unfit_list[0].extend(x_data)
         fit_list[0].extend(x_data)
+        residual[0].extend(x_data)
+        residual[1].extend(resid)
         for i in x_data:
             if g_unfit is not None:
                 unfit_list[1].append(g_unfit(i))
@@ -710,12 +797,6 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         diction['FWHM'] = FWHM_list[i]
         diction['flag'] = flag_list[i]
         return_list.append(diction)
-
-    residual[0].extend(fit_list[0])
-    temp_fit = np.array(fit_list[1])
-    temp_y = np.array(y_data)
-    resid = temp_y-temp_fit
-    residual[1].extend(resid)
 
     return return_list, unfit_list, fit_list, residual, base_list
 
