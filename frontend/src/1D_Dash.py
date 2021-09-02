@@ -27,6 +27,15 @@ from packages.targeted_callbacks import targeted_callback
 # Imported code by Robert Tang-Kong
 from packages.hitp import bayesian_block_finder
 
+
+class Tag():
+    def __init__(self, tag_name, peak_x, peak_y, fwhm, **uid):
+        self.Tag = tag_name
+        self.Peak = str(peak_x) + ', ' + str(peak_y)
+        self.FWHM = str(fwhm)
+        self.uid = uid
+
+
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -142,7 +151,8 @@ def splash_PATCH_call(tag, uid, x, y, fwhm):
     data.append({
         'name': tag,
         'locator': str(x)+', '+str(y)+', '+str(fwhm)})
-    return requests.patch(url, json=data).status_code
+    data_add = {'add_tags': data}
+    return requests.patch(url, json=data_add).status_code
 
 
 # Handles .xdi files and returns a dataframe of the data in it
@@ -290,11 +300,12 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             x = arr[0][:-1]
             y = arr[1][:-1]
             fwhm = arr[2]
-            temp = dict(Tag=i['name'], Peak=str(x+', '+y), FWHM=fwhm)
-            tags_data.append(temp)
+            temp = Tag(i['name'], x, y, fwhm)
+            tags_data.append(temp.__dict__)
         else:
-            temp = dict(Tag=i['name'])
-            tags_data.append(temp)
+            temp = Tag(i['name'])
+            print('MISSING TAG VALUES')
+            tags_data.append(temp.__dict__)
 
     # split down data to work with new get_fig function
     data = pd.DataFrame.to_numpy(df)
@@ -318,7 +329,10 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                     'hoverCompareCartesian',
                     'zoomInGeo',
                     'zoomOutGeo']})
-
+ #   color = random.sample(range(0, 0xFFFFFF),tags_data.shape[0])
+ #   color = list(map(str,color))
+ #   list_colors = ['#'+shade for shade in color]
+ #   tags_data['COLOR'] = list_colors
     graphData = [
             html.H5(
                 id={'type': 'splash_location', 'index': index},
@@ -384,9 +398,12 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                         columns=[
                             {'name': 'Tag', 'id': 'Tag'},
                             {'name': 'Peak', 'id': 'Peak'},
-                            {'name': 'FWHM', 'id': 'FWHM'}],
+                            {'name': 'FWHM', 'id': 'FWHM'},
+                            {'name': 'COLOR', 'id': 'COLOR'}],
                         data=tags_data,
-                        style_cell={'padding': '1rem'}),
+#                        style_data_conditional=[{'if': {'row_index': i, 'column_id': 'COLOR'}, 'background-color': tags_data['COLOR'][i], 'color': tags_data['COLOR'][i]} for i in range(tags_data.shape[0])],
+                        style_cell={'padding': '1rem'},
+                        row_deletable=True),
                     html.Button(
                         id={'type': 'save_splash', 'index': index},
                         children='Save Table to Splash',
@@ -890,15 +907,11 @@ def single_tags_table(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag('(F)'+tag, x, y, fwhm)
+                temp = temp.__dict__
             else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag(tag, x, y, fwhm)
+                temp = temp.__dict__
             if rows:
                 rows.append(temp)
             else:
@@ -978,19 +991,13 @@ def multi_tags_table(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag('(F)'+tag, x, y, fwhm)
             else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag(tag, x, y, fwhm)
             if rows:
-                rows.append(temp)
+                rows.append(temp.__dict__)
             else:
-                rows = [temp]
+                rows = [temp.__dict__]
 
         x_data = figure['data'][0]['x']
         y_data = figure['data'][0]['y']
@@ -1082,19 +1089,13 @@ def single_tags_splash(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag('(F)' + tag, x, y, fwhm)
             else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag(tag, x, y, fwhm)
             if rows:
-                rows.append(temp)
+                rows.append(temp.__dict__)
             else:
-                rows = [temp]
+                rows = [temp.__dict__]
 
         x_data = figure['data'][0]['x']
         y_data = figure['data'][0]['y']
@@ -1170,19 +1171,13 @@ def multi_tags_splash(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = i['FWHM']
             if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag('(F)' + tag, x, y, fwhm)
             else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag(tag, x, y, fwhm)
             if rows:
-                rows.append(temp)
+                rows.append(temp.__dict__)
             else:
-                rows = [temp]
+                rows = [temp.__dict__]
 
         x_data = figure['data'][0]['x']
         y_data = figure['data'][0]['y']
@@ -1319,7 +1314,10 @@ def update_splash_annotation(rows):
         stash_figure = None
         return fig
     input_states = dash.callback_context.states
-    figure = next(iter(input_states.values()))
+#    figure = next(iter(input_states.values()))
+    for i in iter(input_states):
+        if str(i).endswith('.figure'):
+            figure = dash.callback_context.states[i]
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
     return update_annotation_helper(rows, x_data, y_data)

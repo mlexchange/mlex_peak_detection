@@ -7,3 +7,5 @@ fabio
 matplotlib
 cython
 h5py
+requests
+
