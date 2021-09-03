@@ -29,11 +29,11 @@ from packages.hitp import bayesian_block_finder
 
 
 class Tag():
-    def __init__(self, tag_name, peak_x, peak_y, fwhm, **uid):
+    def __init__(self, tag_name, peak_x, peak_y, fwhm, uid='TBD'):
         self.Tag = tag_name
         self.Peak = str(peak_x) + ', ' + str(peak_y)
         self.FWHM = str(fwhm)
-        self.uid = uid
+        self.tag_uid = uid
 
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -153,6 +153,14 @@ def splash_PATCH_call(tag, uid, x, y, fwhm):
         'locator': str(x)+', '+str(y)+', '+str(fwhm)})
     data_add = {'add_tags': data}
     return requests.patch(url, json=data_add).status_code
+
+
+# Takes tags applied to data along wtih the UID of the splash-ml dataset. With
+# those tags and UID it PATCHs to the database with the api.
+def splash_PATCH_call_delete(uid, tag_uid):
+    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
+    data_remove={'remove_tags': tag_uid}
+    return requests.patch(url, json=data_remove).status_code
 
 
 # Handles .xdi files and returns a dataframe of the data in it
@@ -300,7 +308,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             x = arr[0][:-1]
             y = arr[1][:-1]
             fwhm = arr[2]
-            temp = Tag(i['name'], x, y, fwhm)
+            temp = Tag(i['name'], x, y, fwhm, i['uid'])
             tags_data.append(temp.__dict__)
         else:
             temp = Tag(i['name'])
@@ -399,7 +407,9 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                             {'name': 'Tag', 'id': 'Tag'},
                             {'name': 'Peak', 'id': 'Peak'},
                             {'name': 'FWHM', 'id': 'FWHM'},
-                            {'name': 'COLOR', 'id': 'COLOR'}],
+                            {'name': 'COLOR', 'id': 'COLOR'},
+                            {'name': 'UID', 'id': 'tag_uid', 'hideable': True}
+                        ],
                         data=tags_data,
 #                        style_data_conditional=[{'if': {'row_index': i, 'column_id': 'COLOR'}, 'background-color': tags_data['COLOR'][i], 'color': tags_data['COLOR'][i]} for i in range(tags_data.shape[0])],
                         style_cell={'padding': '1rem'},
@@ -539,7 +549,9 @@ def parse_contents(contents, filename, date, index):
                         columns=[
                             {'name': 'Tag', 'id': 'Tag'},
                             {'name': 'Peak', 'id': 'Peak'},
-                            {'name': 'FWHM', 'id': 'FWHM'}],
+                            {'name': 'FWHM', 'id': 'FWHM'},
+                            {'name': 'UID', 'id': 'tag_uid', 'hideable': True}
+                        ],
                         style_cell={'padding': '1rem'},
                         row_deletable=True),
                     html.Button(
@@ -1220,10 +1232,16 @@ def update_splash_data(n_clicks):
     uri = uri[5:]
     uid = uid[5:]
     splash_data = splash_GET_call(uri, None, 0, 1)
-    if splash_data and splash_data[0]['tags']:
-        offset = len(splash_data[0]['tags'])
-        rows = rows[offset:len(rows)]
-    for i in rows:
+    splash_tags = splash_data[0]['tags']
+    splash_tags_uid = [tag['uid'] for tag in splash_tags]
+    current_tag_uid = [row['tag_uid'] for row in rows]
+    tags2remove = np.setdiff1d(splash_tags_uid, current_tag_uid)
+    response = splash_PATCH_call_delete(uid, list(tags2remove))
+    if response != 200:
+        return html.Div('Response: ' + str(response))
+    row_idx_add = [i for i, e in enumerate(current_tag_uid) if e == 'TBD']
+    for idx in row_idx_add:
+        i = rows[idx]
         x = i['Peak'].split()[0][:-1]
         y = i['Peak'].split()[1]
         response = splash_PATCH_call(
@@ -1233,7 +1251,7 @@ def update_splash_data(n_clicks):
                 y,
                 i['FWHM'])
         if response != 200:
-            return html.Div('Response: '+str(response))
+           return html.Div('Response: '+str(response))
     return html.Div('Response: 200')
 
 
@@ -1308,13 +1326,12 @@ targeted_callback(
 
 # populates the graph with tags and the peak locations for splash upload
 def update_splash_annotation(rows):
+    input_states = dash.callback_context.states
     global stash_figure
     if stash_figure:
         fig = stash_figure
         stash_figure = None
         return fig
-    input_states = dash.callback_context.states
-#    figure = next(iter(input_states.values()))
     for i in iter(input_states):
         if str(i).endswith('.figure'):
             figure = dash.callback_context.states[i]
