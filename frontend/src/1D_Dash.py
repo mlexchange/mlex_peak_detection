@@ -289,7 +289,6 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
 # parsing splash-ml files found and upload contents to content section of
 # webpage
 def parse_splash_ml(contents, filename, uid, tags, index):
-
     try:
         # Different if statments to hopefully handel the files types needed
         # when graphing 1D data
@@ -463,7 +462,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
 def parse_contents(contents, filename, date, index):
     content_type, content_string = contents.split(',')
 
-    npyArr = 'idk man'
+    npyArr = 'Error'
     decoded = base64.b64decode(content_string)
     try:
         # Different if statments to hopefully handel the files types needed
