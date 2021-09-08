@@ -53,16 +53,31 @@ SIDEBAR_STYLE = {
         'top': 0,
         'left': 0,
         'bottom': 0,
-        'width': '22rem',
         'padding': '2rem 1rem',
-        'background-color': '#f8f9fa'}
+        'background-color': '#f8f9fa',
+        'width': '15%'}
 
 # the styles for the main content position it to the right of the sidebar and
 # add some padding.
 CONTENT_STYLE = {
-        'margin-left': '24rem',
-        'margin-right': '2rem',
+        'margin-left': '17%',
         'padding': '2rem 1rem'}
+
+#
+TABLE_STYLE = [
+{   'if': {'column_id': ''},
+    'width': '2%'},
+    {'if': {'column_id': 'Tag'},
+    'width': '10%'},
+    {'if': {'column_id': 'Peak'},
+    'width': '35%'},
+    {'if': {'column_id': 'FWHM'},
+     'width': '35%'},
+    {'if': {'column_id': 'COLOR'},
+     'width': '10%'},
+    {'if': {'column_id': 'tag_uid'},
+     'width': '8%'},
+]
 
 # Sidebar content, this includes the titles with the splash-ml entry and query
 # button
@@ -159,7 +174,7 @@ def splash_PATCH_call(tag, uid, x, y, fwhm):
 # those tags and UID it PATCHs to the database with the api.
 def splash_PATCH_call_delete(uid, tag_uid):
     url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
-    data_remove={'remove_tags': tag_uid}
+    data_remove = {'remove_tags': tag_uid}
     return requests.patch(url, json=data_remove).status_code
 
 
@@ -184,18 +199,21 @@ def parseXDI(xdiFile):
 def get_fig(x, y):
     if len(y) > 0:
         fig = go.Figure(
-                go.Scatter(x=x, y=y, name='XRD Data'))
+            go.Scatter(x=x, y=y, name='XRD Data'))
     else:
         fig = px.line(x)
     fig.update_layout(
-             xaxis=dict(
-                rangeslider=dict(
-                        visible=True),
+        xaxis=dict(
+            rangeslider=dict(
+                visible=True),
                 type='linear'),
-             yaxis=dict(
-                 autorange=False,
-                 range=[np.amin(x)-30, np.amax(y)+30],
-                 fixedrange=False))
+        yaxis=dict(
+            autorange=False,
+            range=[np.amin(x)-30, np.amax(y)+30],
+            fixedrange=False),
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=300
+    )
 
     return fig
 
@@ -372,7 +390,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                     style={'padding-left': '3rem'}),
             html.Div(
                 children=[
-                    html.H6('Select peaks to find in'),
+                    html.H6('Select peaks to find'),
                     html.Div(id={'type': 'splash_domain', 'index': index}),
                     dcc.Input(
                         id={'type': 'splash_peaks', 'index': index},
@@ -395,7 +413,8 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                             'padding-bottom': '3rem'}),
                     html.Div(id={'type': 'splash_response', 'index': index})],
                 style={
-                    'width': '30rem',
+                    'width': '20%',
+                    #'width': '30rem',
                     'padding': '3rem 3rem 3rem 3rem',
                     'float': 'left'}),
             html.Div(
@@ -411,8 +430,13 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                             {'name': 'UID', 'id': 'tag_uid', 'hideable': True}
                         ],
                         data=tags_data,
+                        style_cell_conditional=TABLE_STYLE,
 #                        style_data_conditional=[{'if': {'row_index': i, 'column_id': 'COLOR'}, 'background-color': tags_data['COLOR'][i], 'color': tags_data['COLOR'][i]} for i in range(tags_data.shape[0])],
-                        style_cell={'padding': '1rem'},
+                        style_cell={'padding': '1rem',
+                                    'textOverflow': 'ellipsis',
+                                    'overflow': 'hidden'},
+                                    #'maxWidth': 0},
+                        style_table={'overflowX': 'auto'},
                         row_deletable=True),
                     html.Button(
                         id={'type': 'save_splash', 'index': index},
@@ -420,10 +444,12 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                         style={
                             'padding-bottom': '3rem'})],
                 style={
-                    'margin-left': '33rem',
-                    'margin-right': '2rem',
-                    'padding': '8rem 3rem 3rem 3rem'})]
-
+                    'margin-left': '27%',
+                    #'margin-left': '33rem',
+                    'width': '70%',
+                    #'margin-right': '2rem',
+                    'padding': '3rem 3rem 10rem 3rem'})
+    ]
     return html.Div(
             children=graphData,
             style={
@@ -517,7 +543,7 @@ def parse_contents(contents, filename, date, index):
                     style={'padding-left': '3rem'}),
             html.Div(
                 children=[
-                    html.H6('Select peaks to find in'),
+                    html.H6('Select peaks to find'),
                     html.Div(id={'type': 'domain', 'index': index}),
                     dcc.Input(
                         id={'type': 'input_peaks', 'index': index},
@@ -538,7 +564,8 @@ def parse_contents(contents, filename, date, index):
                         children='Tag w/ Blocks',
                         style={'padding-left': '3rem'})],
                 style={
-                    'width': '30rem',
+                    'width': '20%',
+                    #'width': '30rem',
                     'padding': '3rem 3rem 3rem 3rem',
                     'float': 'left'}),
             html.Div(
@@ -552,7 +579,11 @@ def parse_contents(contents, filename, date, index):
                             {'name': 'FWHM', 'id': 'FWHM'},
                             {'name': 'UID', 'id': 'tag_uid', 'hideable': True}
                         ],
-                        style_cell={'padding': '1rem'},
+                        style_cell={'padding': '1rem',
+                                    'textOverflow': 'ellipsis',
+                                    'overflow': 'hidden'},
+                                    # 'maxWidth': 0},
+                        style_table={'overflowX': 'auto'},
                         row_deletable=True),
                     html.Button(
                         id={'type': 'save_labels', 'index': index},
@@ -562,9 +593,13 @@ def parse_contents(contents, filename, date, index):
                         'index': index}),
                     html.Div(id={'type': 'saved_response', 'index': index})],
                 style={
-                    'margin-left': '33rem',
-                    'margin-right': '2rem',
-                    'padding': '8rem 3rem 3rem 3rem'})]
+                    'margin-left': '27%',
+                    # 'margin-left': '33rem',
+                    'width': '70%',
+                    # 'margin-right': '2rem',
+                    # 'padding': '8rem 3rem 3rem 3rem'
+                    'padding': '3rem 3rem 10rem 3rem'})
+    ]
 
     return html.Div(
             children=graphData,
@@ -1060,156 +1095,20 @@ def save_tags_button(n_clicks, rows, file_name):
         return None, html.Div('No Tags Selected')
 
 
-# Order of the table and splash-ml might be different but that shouldn't matter
-# for the current usecase.  Upload to splash-ml happens later, this only
-# handles adding window tagged data to table
-def single_tags_splash(n_clicks):
-    input_states = dash.callback_context.states
-    state_iter = iter(input_states.values())
-    rows = next(state_iter)
-    tag = next(state_iter)
-    num_peaks = next(state_iter)
-    baseline = next(state_iter)
-    figure = next(state_iter)
-    if n_clicks and tag:
-        x1 = figure['layout']['xaxis']['range'][0]
-        x2 = figure['layout']['xaxis']['range'][1]
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-        start, end = 0, len(x_data)
-        for i in range(len(x_data)):
-            if x_data[i] >= x1 and start == 0:
-                start = i
-            if x_data[i] >= x2:
-                end = i+1
-                break
-
-        if baseline is None or len(baseline) == 0:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks)
-        else:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    baseline=True)
-
-        for i in peak_info:
-            index = i['index']+start
-            x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = Tag('(F)' + tag, x, y, fwhm)
-            else:
-                temp = Tag(tag, x, y, fwhm)
-            if rows:
-                rows.append(temp.__dict__)
-            else:
-                rows = [temp.__dict__]
-
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-
-        figure = update_annotation_helper(
-                rows,
-                x_data,
-                y_data,
-                unfit_list,
-                fit_list,
-                residual,
-                base_list)
-
-        global stash_figure
-        stash_figure = figure
-
-    return rows
-
-
 targeted_callback(
-        single_tags_splash,
+        single_tags_table,
         Input({'type': 'add_splash_tags', 'index': MATCH}, 'n_clicks'),
         Output({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
         State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
 
-# Order of the table and splash-ml might be different but that shouldn't matter
-# for the current usecase.  Upload to splash-ml happens later, this only
-# handles adding block tagged data to table
-def multi_tags_splash(n_clicks):
-    input_states = dash.callback_context.states
-    state_iter = iter(input_states.values())
-    rows = next(state_iter)
-    tag = next(state_iter)
-    num_peaks = next(state_iter)
-    baseline = next(state_iter)
-    figure = next(state_iter)
-    num_peaks = num_peaks
-    if n_clicks and tag:
-        x1 = figure['layout']['xaxis']['range'][0]
-        x2 = figure['layout']['xaxis']['range'][1]
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-        start, end = 0, len(x_data)
-        for i in range(len(x_data)):
-            if x_data[i] >= x1 and start == 0:
-                start = i
-            if x_data[i] >= x2:
-                end = i+1
-                break
-
-        if baseline is None or len(baseline) == 0:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    block=True)
-        else:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    baseline=True,
-                    block=True)
-
-        for i in peak_info:
-            index = i['index']+start
-            x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = Tag('(F)' + tag, x, y, fwhm)
-            else:
-                temp = Tag(tag, x, y, fwhm)
-            if rows:
-                rows.append(temp.__dict__)
-            else:
-                rows = [temp.__dict__]
-
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-
-        figure = update_annotation_helper(
-                rows,
-                x_data,
-                y_data,
-                unfit_list,
-                fit_list,
-                residual,
-                base_list)
-
-        global stash_figure
-        stash_figure = figure
-    return rows
-
-
 targeted_callback(
-        multi_tags_splash,
+        multi_tags_table,
         Input({'type': 'block_splash_tags', 'index': MATCH}, 'n_clicks'),
         Output({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
@@ -1306,13 +1205,8 @@ def update_graph_annotation(rows):
     for i in iter(input_states):
         if str(i).endswith('.figure'):
             figure = dash.callback_context.states[i]
-    # x_data = figure['data'][0]['x']
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
-#   if '_template' in figure['layout']['xaxis']['rangeslider']['yaxis']:
-#       del figure['layout']['xaxis']['rangeslider']['yaxis']['_template']
-#   figure = go.Figure(figure)
-
     return update_annotation_helper(rows, x_data, y_data)
 
 
