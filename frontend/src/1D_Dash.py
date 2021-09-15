@@ -243,21 +243,21 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
             figure.add_trace(
                     go.Scatter(
                         x=unfit_list[0],
-                        y=unfit_list[1]+base_list[1],
+                        y=(np.array(unfit_list[1]) + np.array(base_list[1])),
                         mode='lines',
                         name='unfit'))
         if fit_list is not None:
             figure.add_trace(
                     go.Scatter(
                         x=fit_list[0],
-                        y=fit_list[1]+base_list[1],
+                        y=(np.array(fit_list[1]) + np.array(base_list[1])),
                         mode='lines',
                         name='fit'))
         if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
-                        y=residual[1],
+                        y=(np.array(residual[1]) + np.array(base_list[1])),
                         mode='lines',
                         name='residual'))
     else:
@@ -290,6 +290,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
 # webpage
 def parse_splash_ml(contents, filename, uid, tags, index):
     try:
+        print(filename)
         # Different if statments to hopefully handel the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
@@ -339,6 +340,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
         y = data[:, 1]
     else:
         y = []
+    # graphData = generate_graph(x, y, index, filename, tags_data) # MERGING EVERYTHING
     # building graph object outside of get_fig() as get_fig() is used in other
     # locations
     graph = dcc.Graph(
@@ -362,7 +364,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
             html.H5(
                 id={'type': 'splash_location', 'index': index},
                 children='uri: '+filename),
-            html.H6(
+             html.H6(
                 id={'type': 'splash_uid', 'index': index},
                 children='uid: '+uid),
             # Graph of csv file
@@ -400,6 +402,13 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                         type='text',
                         min=0,
                         placeholder='Tag Name'),
+                    dcc.Dropdown(
+                        id={'type': 'splash_shape', 'index': index},
+                        options=[
+                            {'label': 'Gaussian', 'value': 'Gaussian'},
+                            {'label': 'Voigt', 'value': 'Voigt'}
+                        ],
+                        placeholder='Peak Shape'),
                     html.Button(
                         id={'type': 'add_splash_tags', 'index': index},
                         children='Tag Window',
@@ -426,7 +435,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                             {'name': 'Peak', 'id': 'Peak'},
                             {'name': 'FWHM', 'id': 'FWHM'},
                             {'name': 'COLOR', 'id': 'COLOR'},
-                            {'name': 'UID', 'id': 'tag_uid', 'hideable': True}
+                            {'name': 'UID', 'id': 'tag_uid'} #, 'hideable': True}
                         ],
                         data=tags_data,
                         style_cell_conditional=TABLE_STYLE,
@@ -436,6 +445,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                                     'overflow': 'hidden'},
                                     #'maxWidth': 0},
                         style_table={'overflowX': 'auto'},
+                        hidden_columns=['tag_uid'],
                         row_deletable=True),
                     html.Button(
                         id={'type': 'save_splash', 'index': index},
@@ -447,8 +457,7 @@ def parse_splash_ml(contents, filename, uid, tags, index):
                     #'margin-left': '33rem',
                     'width': '70%',
                     #'margin-right': '2rem',
-                    'padding': '3rem 3rem 10rem 3rem'})
-    ]
+                    'padding': '3rem 3rem 10rem 3rem'})]
     return html.Div(
             children=graphData,
             style={
@@ -499,9 +508,25 @@ def parse_contents(contents, filename, date, index):
         y = []
     # Graph build outside of get_fig() to accomodate for other calls to this
     # function
+    graphData = generate_graph(x, y, index, filename, [], date)
+
+    return html.Div(
+            children=graphData,
+            style={
+                'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
+                'border-radius': '20px',
+                'padding': '30px 30px',
+                'margin': '10px'})
+
+
+def generate_graph(x, y, index, filename, tags_data, date=None):
+    if len(tags_data) == 0:
+        fig = get_fig(x, y)
+    else:
+        fig = update_annotation_helper(tags_data, x, y)
     graph = dcc.Graph(
             id={'type': 'graph', 'index': index},
-            figure=get_fig(x, y),
+            figure=fig,
             config={
                 'displayModeBar': True,
                 'displaylogo': False,
@@ -513,101 +538,101 @@ def parse_contents(contents, filename, date, index):
                     'zoomInGeo',
                     'zoomOutGeo']})
 
+    if date is None:
+        date = 1
+
     graphData = [
-            html.H5(
-                id={'type': 'filename', 'index': index},
-                children=filename),
-            html.H6(datetime.datetime.fromtimestamp(date)),
-            # Graph of csv file
-            graph,
-            # Auto resize the Y-Axis
-            dcc.Checklist(
-                id={'type': 'resize', 'index': index},
-                options=[
-                    {'label': 'Autoscale Y-Axis',
-                        'value': 'Autoscale Y-Axis'}],
-                value=['Autoscale Y-Axis'],
-                style={
-                    'padding-left': '3rem',
-                    'width': 'fit-content'}),
-            dcc.Checklist(
-                id={'type': 'baseline', 'index': index},
-                options=[
-                    {'label': 'Apply Baseline to Peak Fitting',
-                        'value': 'Apply Baseline to Data'}],
-                style={
-                    'padding-left': '3rem',
-                    'width': 'fit-content'}),
-            html.H6(children=['Only select peak number if you tag window'],
-                    style={'padding-left': '3rem'}),
-            html.Div(
-                children=[
-                    html.H6('Select peaks to find'),
-                    html.Div(id={'type': 'domain', 'index': index}),
-                    dcc.Input(
-                        id={'type': 'input_peaks', 'index': index},
-                        type='number',
-                        placeholder='Number of Peaks'),
-                    dcc.Input(
-                        id={'type': 'input_tags', 'index': index},
-                        type='text',
-                        min=0,
-                        placeholder='Tag Name'),
-                    html.Button(
-                        id={'type': 'apply_labels', 'index': index},
-                        children='Tag Window',
-                        style={
-                            'padding-bottom': '3rem'}),
-                    html.Button(
-                        id={'type': 'block_tag', 'index': index},
-                        children='Tag w/ Blocks',
-                        style={'padding-left': '3rem'})],
-                style={
-                    'width': '20%',
-                    #'width': '30rem',
-                    'padding': '3rem 3rem 3rem 3rem',
-                    'float': 'left'}),
-            html.Div(
-                children=[
-                    html.H5('Current Tags'),
-                    dash_table.DataTable(
-                        id={'type': 'tag_table', 'index': index},
-                        columns=[
-                            {'name': 'Tag', 'id': 'Tag'},
-                            {'name': 'Peak', 'id': 'Peak'},
-                            {'name': 'FWHM', 'id': 'FWHM'},
-                            {'name': 'UID', 'id': 'tag_uid', 'hideable': True}
-                        ],
-                        style_cell={'padding': '1rem',
-                                    'textOverflow': 'ellipsis',
-                                    'overflow': 'hidden'},
-                                    # 'maxWidth': 0},
-                        style_table={'overflowX': 'auto'},
-                        row_deletable=True),
-                    html.Button(
-                        id={'type': 'save_labels', 'index': index},
-                        children='Save Table of Tags'),
-                    dcc.Download(id={
-                        'type': 'download_csv_tags',
-                        'index': index}),
-                    html.Div(id={'type': 'saved_response', 'index': index})],
-                style={
-                    'margin-left': '27%',
-                    # 'margin-left': '33rem',
-                    'width': '70%',
-                    # 'margin-right': '2rem',
-                    # 'padding': '8rem 3rem 3rem 3rem'
-                    'padding': '3rem 3rem 10rem 3rem'})
-    ]
-
-    return html.Div(
-            children=graphData,
+        html.H5(
+            id={'type': 'filename', 'index': index},
+            children=filename),
+        html.H6(datetime.datetime.fromtimestamp(date)),
+        # Graph of csv file
+        graph,
+        # Auto resize the Y-Axis
+        dcc.Checklist(
+            id={'type': 'resize', 'index': index},
+            options=[
+                {'label': 'Autoscale Y-Axis',
+                 'value': 'Autoscale Y-Axis'}],
+            value=['Autoscale Y-Axis'],
             style={
-                'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
-                'border-radius': '20px',
-                'padding': '30px 30px',
-                'margin': '10px'})
-
+                'padding-left': '3rem',
+                'width': 'fit-content'}),
+        dcc.Checklist(
+            id={'type': 'baseline', 'index': index},
+            options=[
+                {'label': 'Apply Baseline to Peak Fitting',
+                 'value': 'Apply Baseline to Data'}],
+            style={
+                'padding-left': '3rem',
+                'width': 'fit-content'}),
+        html.H6(children=['Only select peak number if you tag window'],
+                style={'padding-left': '3rem'}),
+        html.Div(
+            children=[
+                html.H6('Select peaks to find'),
+                html.Div(id={'type': 'domain', 'index': index}),
+                dcc.Input(
+                    id={'type': 'input_peaks', 'index': index},
+                    type='number',
+                    placeholder='Number of Peaks'),
+                dcc.Input(
+                    id={'type': 'input_tags', 'index': index},
+                    type='text',
+                    min=0,
+                    placeholder='Tag Name'),
+                dcc.Dropdown(
+                    id={'type': 'input_shape', 'index': index},
+                    options=[
+                        {'label': 'Gaussian', 'value': 'Gaussian'},
+                        {'label': 'Voigt', 'value': 'Voigt'}
+                    ],
+                    placeholder='Peak Shape'),
+                html.Button(
+                    id={'type': 'apply_labels', 'index': index},
+                    children='Tag Window',
+                    style={
+                        'padding-bottom': '3rem'}),
+                html.Button(
+                    id={'type': 'block_tag', 'index': index},
+                    children='Tag w/ Blocks',
+                    style={'padding-left': '3rem'})],
+            style={
+                'width': '20%',
+                'padding': '3rem 3rem 3rem 3rem',
+                'float': 'left'}),
+        html.Div(
+            children=[
+                html.H5('Current Tags'),
+                dash_table.DataTable(
+                    id={'type': 'tag_table', 'index': index},
+                    columns=[
+                        {'name': 'Tag', 'id': 'Tag'},
+                        {'name': 'Peak', 'id': 'Peak'},
+                        {'name': 'FWHM', 'id': 'FWHM'},
+                        {'name': 'UID', 'id': 'tag_uid'}
+                    ],
+                    style_cell={'padding': '1rem',
+                                'textOverflow': 'ellipsis',
+                                'overflow': 'hidden'},
+                    # 'maxWidth': 0},
+                    data=tags_data,
+                    style_table={'overflowX': 'auto'},
+                    hidden_columns=['tag_uid'],
+                    row_deletable=True),
+                html.Button(
+                    id={'type': 'save_labels', 'index': index},
+                    children='Save Table of Tags'),
+                dcc.Download(id={
+                    'type': 'download_csv_tags',
+                    'index': index}),
+                html.Div(id={'type': 'saved_response', 'index': index})],
+            style={
+                'margin-left': '27%',
+                'width': '70%',
+                'padding': '3rem 3rem 10rem 3rem'})
+    ]
+    return graphData
 
 # Takes the tags and converts them to a .csv format to save locally for the
 # user on the webpage
@@ -626,80 +651,72 @@ def save_local_file(rows_of_tags, file_name):
     return res
 
 
-# The actual peak finding based off of x and y data provided
-def peak_helper(x_data, y_data, num_peaks):
-    flag_list = []
-    total_p = signal.find_peaks_cwt(y_data, 1)
-    total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
-    total_img = np.log(total_img+1)
-    if len(total_p) == 0:
+def peak_helper(x_data, y_data, num_peaks, peak_shape):
+    x_data = np.array(x_data)
+    y_data = np.array(y_data)
+    c = 2*np.sqrt(2*np.log(2))
+    ind_peaks = signal.find_peaks_cwt(y_data, 1)
+    ref = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
+    ref = np.log(ref+1)
+    if len(ind_peaks) == 0:
         return [], [], [], None, None
-    temp_list = []
-    return_p = []
-    if len(total_p > num_peaks):
-        for i in total_p:
-            temp_list.append((y_data[i], i))
-        temp_list.sort()
-        temp_list = temp_list[-num_peaks:]
-        for i in temp_list:
-            return_p.append(i[1])
-        return_p.sort()
-
+    init_xpeaks = x_data[ind_peaks]
+    init_ypeaks = y_data[ind_peaks]
+    sorted_ind_peaks = init_ypeaks.argsort()
+    sorted_ind_peaks = ind_peaks[sorted_ind_peaks]
+    if len(sorted_ind_peaks) > num_peaks:
+        init_xpeaks = x_data[sorted_ind_peaks[-num_peaks:]]
+        init_ypeaks = y_data[sorted_ind_peaks[-num_peaks:]]
+        ind_peaks = sorted_ind_peaks[-num_peaks:]
     g_unfit = None
-    g_fit = None
-    difference = x_data[1] - x_data[0]
-    for i in return_p:
+    for ind, (xpeak, ypeak) in enumerate(zip(np.flip(init_xpeaks), np.flip(init_ypeaks))):
+        i = ind_peaks[ind]
         largest_width = 0
-        for i_img in range(len(total_img)):
-            if total_img[i_img][i] > largest_width:
-                largest_width = total_img[i_img][i]
-        stddev = (largest_width*difference)/(2*math.sqrt(2*math.log(2)))
-
-        g_init = models.Gaussian1D(
-                amplitude=y_data[i],
-                mean=x_data[i],
-                stddev=stddev)
-        g_init.mean.min = float(x_data[0])
-        g_init.mean.max = float(x_data[-1])
-        g_init.amplitude.min = 0
+        for i_img in range(len(ref)):
+            if ref[i_img][i] > largest_width:
+                largest_width = ref[i_img][i]
+        sigma = (largest_width * (x_data[1]-x_data[0])) / c
+        if peak_shape == 'Voigt':
+            g_init = models.Voigt1D(x_0=xpeak,
+                                    amplitude_L=ypeak,
+                                    fwhm_L=c*sigma, #2*gamma,
+                                    fwhm_G=c*sigma)
+        else:
+            g_init = models.Gaussian1D(amplitude=ypeak,
+                                       mean=xpeak,
+                                       stddev=sigma)
         if g_unfit is None:
             g_unfit = g_init
         else:
-            g_unfit = g_unfit+g_init
+            g_unfit = g_unfit + g_init
     fit_g = fitting.SimplexLSQFitter()
-    if len(return_p) == 1:
+    if init_xpeaks.shape[0] == 1:
         fit_g = fitting.LevMarLSQFitter()
     g_fit = fit_g(g_unfit, x_data, y_data)
-
+    residual = np.abs(g_fit(x_data) - y_data)
+    if np.mean(residual/y_data) > 0.10:
+        flag_list = list(np.ones(num_peaks))
+    else:
+        flag_list = list(np.zeros(num_peaks))
     FWHM_list = []
-    if len(return_p) == 1:
-        FWHM_list.append(g_fit.stddev.value)
+    if len(init_ypeaks) == 1:
+        if peak_shape == 'Voigt':
+            FWHM_list.append(g_fit.fwhm_G.value)
+        else:
+            FWHM_list.append(g_fit.stddev.value)
     else:
-        for i in range(len(return_p)):
-            FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
-            FWHM_list[-1] = FWHM_list[-1].value
-    residual = 0
-    fit_total = 0
-    y_total = 0
-    for i in range(len(x_data)):
-        fit_total += g_fit(x_data[i])
-        y_total += y_data[i]
-    residual = fit_total/y_total
-    residual = abs(1-residual)
-    if residual > 0.10:
-        for i in return_p:
-            flag_list.append(1)
-    else:
-        for i in return_p:
-            flag_list.append(0)
-
-    return return_p, FWHM_list, flag_list, g_unfit, g_fit
+        for i in range(len(init_ypeaks)):
+            if peak_shape == 'Voigt':
+                FWHM_list.append(1*getattr(g_fit, f"fwhm_G_{i}"))
+            else:
+                FWHM_list.append(c*getattr(g_fit, f"stddev_{i}"))
+    return ind_peaks, FWHM_list, flag_list, g_unfit, g_fit
 
 
 # The logic on fitting peaks to data split up by blocks, or all the data
 # together.  If data is split by blocks, we attempt to fit 3 peaks to the
 # section
-def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
+def get_peaks(x_data, y_data, num_peaks, peak_shape, baseline=None, block=None):
     base_list = None
     unfit_list = [[], []]
     fit_list = [[], []]
@@ -714,10 +731,10 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         slope = (y_data[-1] - y_data[0])/(x_data[-1] - x_data[0])
         intercept = y_data[0] - (slope * x_data[0])
         base_model = models.Linear1D(slope=slope, intercept=intercept)
-        for i in range(len(y_data)):
-            y_data[i] = y_data[i] - base_model(x_data[i])
+        base = list(base_model(np.array(x_data)))
+        y_data = list(np.array(y_data) - base_model(np.array(x_data)))
         base_list[0] = x_data
-        base_list[1] = y_data
+        base_list[1] = base
 
     FWHM_list = []
     peak_list = []
@@ -736,7 +753,8 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
             temp_peak, temp_FWHM, temp_flag, unfit, fit = peak_helper(
                     temp_x,
                     temp_y,
-                    num_peaks)
+                    num_peaks,
+                    peak_shape)
             temp_peak = [i+lower for i in temp_peak]
             flag_list.extend(temp_flag)
             FWHM_list.extend(temp_FWHM)
@@ -755,7 +773,8 @@ def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
         peak_list, FWHM_list, flag_list, g_unfit, g_fit = peak_helper(
                         x_data,
                         y_data,
-                        num_peaks)
+                        num_peaks,
+                        peak_shape)
         unfit_list[0].extend(x_data)
         fit_list[0].extend(x_data)
         for i in x_data:
@@ -922,6 +941,7 @@ def single_tags_table(n_clicks):
     rows = next(state_iter)
     tag = next(state_iter)
     num_peaks = next(state_iter)
+    peak_shape = next(state_iter)
     figure = next(state_iter)
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
@@ -940,12 +960,14 @@ def single_tags_table(n_clicks):
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
-                    num_peaks)
+                    num_peaks,
+                    peak_shape)
         else:
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
+                    peak_shape,
                     baseline=True)
 
         for i in peak_info:
@@ -989,6 +1011,7 @@ targeted_callback(
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
         State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'input_shape', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -1004,7 +1027,9 @@ def multi_tags_table(n_clicks):
     # I try deleting this and the state that goes with it, but it breaks the
     # function each time... I dont know why
     num_peaks = next(state_iter)
+    peak_shape = next(state_iter)
     figure = next(state_iter)
+    num_peaks = 1       # for block detection, the number of peaks is set to 1
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
         x2 = figure['layout']['xaxis']['range'][1]
@@ -1023,12 +1048,14 @@ def multi_tags_table(n_clicks):
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
+                    peak_shape,
                     block=True)
         else:
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
+                    peak_shape,
                     baseline=True,
                     block=True)
 
@@ -1071,7 +1098,8 @@ targeted_callback(
         State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
-        State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+        # State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'input_shape', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -1102,6 +1130,7 @@ targeted_callback(
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
         State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'splash_shape', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -1112,7 +1141,8 @@ targeted_callback(
         Output({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
         State({'type': 'splash_tags', 'index': MATCH}, 'value'),
-        State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
+        # State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'splash_shape', 'index': MATCH}, 'value'),
         State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
