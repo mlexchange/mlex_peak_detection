@@ -160,22 +160,11 @@ def splash_GET_call(uri, tags, offset, limit):
 
 # Takes tags applied to data along wtih the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
-def splash_PATCH_call(tag, uid, x, y, fwhm):
-    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
-    data = []
-    data.append({
-        'name': tag,
-        'locator': str(x)+', '+str(y)+', '+str(fwhm)})
-    data_add = {'add_tags': data}
-    return requests.patch(url, json=data_add).status_code
-
-
-# Takes tags applied to data along wtih the UID of the splash-ml dataset. With
-# those tags and UID it PATCHs to the database with the api.
-def splash_PATCH_call_delete(uid, tag_uid):
-    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
-    data_remove = {'remove_tags': tag_uid}
-    return requests.patch(url, json=data_remove).status_code
+def splash_PATCH_call(uid, tags2add, tags2remove):
+    url = 'http://splash:8000/api/v0/datasets/' + uid + '/tags'
+    data = {'add_tags': tags2add, 'remove_tags': list(tags2remove)}
+    print(data)
+    return requests.patch(url, json=data).status_code
 
 
 # Handles .xdi files and returns a dataframe of the data in it
@@ -291,7 +280,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
 def parse_splash_ml(contents, filename, uid, tags, index):
     try:
         print(filename)
-        # Different if statments to hopefully handel the files types needed
+        # Different if statements to hopefully handle the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
             # The user uploaded a CSV file
@@ -1164,22 +1153,16 @@ def update_splash_data(n_clicks):
     splash_tags_uid = [tag['uid'] for tag in splash_tags]
     current_tag_uid = [row['tag_uid'] for row in rows]
     tags2remove = np.setdiff1d(splash_tags_uid, current_tag_uid)
-    response = splash_PATCH_call_delete(uid, list(tags2remove))
-    if response != 200:
-        return html.Div('Response: ' + str(response))
     row_idx_add = [i for i, e in enumerate(current_tag_uid) if e == 'TBD']
+    tags2add = []
     for idx in row_idx_add:
         i = rows[idx]
-        x = i['Peak'].split()[0][:-1]
-        y = i['Peak'].split()[1]
-        response = splash_PATCH_call(
-                i['Tag'],
-                uid,
-                x,
-                y,
-                i['FWHM'])
-        if response != 200:
-           return html.Div('Response: '+str(response))
+        tags2add.append({'name': i['Tag'],
+                         'locator': i['Peak']+', '+str(i['FWHM'])
+                         })
+    response = splash_PATCH_call(uid, tags2add, tags2remove)
+    if response != 200:
+        return html.Div('Response: '+str(response))
     return html.Div('Response: 200')
 
 
