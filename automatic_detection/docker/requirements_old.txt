@@ -1,9 +1,0 @@
-scipy
-numpy
-pandas
-astropy
-pathlib
-fabio
-matplotlib
-cython
-h5py
