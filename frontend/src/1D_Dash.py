@@ -16,21 +16,23 @@ import numpy as np
 
 # Imports for interacting with splash-ml api
 import urllib.request
+import random
 import requests
 import json
 
-from packages.helpers import get_peaks, peak_helper
+from packages.helpers import get_peaks
 
 # Imported code by Ronald Pandolfi
 from packages.targeted_callbacks import targeted_callback
 
 
 class Tag():
-    def __init__(self, tag_name, peak_x, peak_y, fwhm, uid='TBD'):
+    def __init__(self, tag_name, peak_x, peak_y, fwhm, uid='TBD', color='TBD'):
         self.Tag = tag_name
         self.Peak = str(peak_x) + ', ' + str(peak_y)
         self.FWHM = str(fwhm)
         self.tag_uid = uid
+        self.COLOR = color
 
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -60,21 +62,6 @@ CONTENT_STYLE = {
         'margin-left': '17%',
         'padding': '2rem 1rem'}
 
-#
-TABLE_STYLE = [
-{   'if': {'column_id': ''},
-    'width': '2%'},
-    {'if': {'column_id': 'Tag'},
-    'width': '10%'},
-    {'if': {'column_id': 'Peak'},
-    'width': '35%'},
-    {'if': {'column_id': 'FWHM'},
-     'width': '35%'},
-    {'if': {'column_id': 'COLOR'},
-     'width': '10%'},
-    {'if': {'column_id': 'tag_uid'},
-     'width': '8%'},
-]
 
 # Sidebar content, this includes the titles with the splash-ml entry and query
 # button
@@ -162,7 +149,6 @@ def splash_GET_call(uri, tags, offset, limit, uid=None):
 def splash_PATCH_call(uid, tags2add, tags2remove):
     url = 'http://splash:8000/api/v0/datasets/' + uid + '/tags'
     data = {'add_tags': tags2add, 'remove_tags': list(tags2remove)}
-    print(data)
     return requests.patch(url, json=data).status_code
 
 
@@ -228,7 +214,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
             figure.add_vline(
                     x=float(pos_x),
                     line_width=1,
-                    line_color='purple',
+                    line_color=i['COLOR'],
                     annotation_text=name)
     if base_list:
         figure.add_trace(
@@ -288,7 +274,6 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
 # webpage
 def parse_splash_ml(contents, filename, uid, tags, index):
     try:
-        print(filename)
         # Different if statements to hopefully handle the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
@@ -315,19 +300,22 @@ def parse_splash_ml(contents, filename, uid, tags, index):
     if tags is None:
         tags = []
 
+    color = random.sample(range(0, 0xFFFFFF), len(tags))
+    list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
+
     # Building the splash-ml table from tags already in the database
     tags_data = []
-    for i in tags:
-        arr = i['locator'].split()
+    for i, tag in enumerate(tags):
+        arr = tag['locator'].split()
 
         if len(arr) == 3:
             x = arr[0][:-1]
             y = arr[1][:-1]
             fwhm = arr[2]
-            temp = Tag(i['name'], x, y, fwhm, i['uid'])
+            temp = Tag(tag['name'], x, y, fwhm, tag['uid'], list_colors[i])
             tags_data.append(temp.__dict__)
         else:
-            temp = Tag(i['name'])
+            temp = Tag(tag['name'])
             print('MISSING TAG VALUES')
             tags_data.append(temp.__dict__)
 
@@ -340,11 +328,6 @@ def parse_splash_ml(contents, filename, uid, tags, index):
         y = []
 
     graph_data = generate_graph(x, y, index, filename, tags_data, uid) # MERGING EVERYTHING
-
- #   color = random.sample(range(0, 0xFFFFFF),tags_data.shape[0])
- #   color = list(map(str,color))
- #   list_colors = ['#'+shade for shade in color]
- #   tags_data['COLOR'] = list_colors
 
     return html.Div(
             children=graph_data,
@@ -408,7 +391,10 @@ def parse_contents(contents, filename, date, index):
                 'margin': '10px'})
 
 
+# Generates the graph and populates the table with tags
 def generate_graph(x, y, index, filename, tags_data, uid):
+    # color = random.sample(range(0, 0xFFFFFF), len(tags_data))
+    # list_colors = ['#'+''.join('%06x' % shade) for shade in color]
     if len(tags_data) == 0:
         fig = get_fig(x, y)
     else:
@@ -498,13 +484,18 @@ def generate_graph(x, y, index, filename, tags_data, uid):
                         {'name': 'Tag', 'id': 'Tag'},
                         {'name': 'Peak', 'id': 'Peak'},
                         {'name': 'FWHM', 'id': 'FWHM'},
+                        {'name': 'COLOR', 'id': 'COLOR'},
                         {'name': 'UID', 'id': 'tag_uid'}
                     ],
+                    data=tags_data,
+                    style_data_conditional=[
+                        {'if': {'row_index': i, 'column_id': 'COLOR'},
+                         'background-color': tags_data[i]['COLOR'],
+                         'color': tags_data[i]['COLOR']}
+                        for i in range(len(tags_data))],
                     style_cell={'padding': '1rem',
                                 'textOverflow': 'ellipsis',
                                 'overflow': 'hidden'},
-                    # 'maxWidth': 0},
-                    data=tags_data,
                     style_table={'overflowX': 'auto'},
                     hidden_columns=['tag_uid'],
                     row_deletable=True),
@@ -694,15 +685,18 @@ def single_tags_table(n_clicks):
                     peak_shape,
                     baseline=True)
 
-        for i in peak_info:
-            index = i['index']+start
+        color = random.sample(range(0, 0xFFFFFF), len(peak_info))
+        list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
+
+        for i, peak in enumerate(peak_info):
+            index = peak['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = Tag('(F)'+tag, x, y, fwhm)
+            fwhm = peak['FWHM']
+            if peak['flag'] == 1:
+                temp = Tag('(F)'+tag, x, y, fwhm, 'TBD', list_colors[i])
                 temp = temp.__dict__
             else:
-                temp = Tag(tag, x, y, fwhm)
+                temp = Tag(tag, x, y, fwhm, 'TBD', list_colors[i])
                 temp = temp.__dict__
             if rows:
                 rows.append(temp)
@@ -783,14 +777,17 @@ def multi_tags_table(n_clicks):
                     baseline=True,
                     block=True)
 
-        for i in peak_info:
-            index = i['index']+start
+        color = random.sample(range(0, 0xFFFFFF), len(peak_info))
+        list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
+
+        for i, peak in enumerate(peak_info):
+            index = peak['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = Tag('(F)'+tag, x, y, fwhm)
+            fwhm = peak['FWHM']
+            if peak['flag'] == 1:
+                temp = Tag('(F)'+tag, x, y, fwhm, 'TBD', list_colors[i])
             else:
-                temp = Tag(tag, x, y, fwhm)
+                temp = Tag(tag, x, y, fwhm, 'TBD', list_colors[i])
             if rows:
                 rows.append(temp.__dict__)
             else:
@@ -822,9 +819,24 @@ targeted_callback(
         State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
-        # State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'input_peaks', 'index': MATCH}, 'value'),
         State({'type': 'input_shape', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
+        app=app)
+
+
+# Callback that updates the conditional formatting of the dash table
+def update_table_color(rows):
+    return [{'if': {'row_index': i, 'column_id': 'COLOR'},
+             'background-color': rows[i]['COLOR'],
+             'color': rows[i]['COLOR']}
+            for i in range(len(rows))]
+
+
+targeted_callback(
+        update_table_color,
+        Input({'type': 'tag_table', 'index': MATCH}, 'data'),
+        Output({'type': 'tag_table', 'index': MATCH}, 'style_data_conditional'),
         app=app)
 
 
@@ -840,8 +852,8 @@ targeted_callback(
         prevent_initial_call=True)
 def save_tags_button(n_clicks, rows, filename):
     if n_clicks and rows:
+        # delete the slash (/) if the data comes from splash-ml
         filename = filename.replace('/', '_')
-        filename = filename.replace(':', '_')
         save = save_local_file(rows, filename)
         return save, html.Div('Downloading Tags')
     else:
