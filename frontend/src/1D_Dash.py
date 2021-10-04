@@ -380,6 +380,7 @@ def parse_contents(contents, filename, date, index):
     # Graph build outside of get_fig() to accomodate for other calls to this
     # function
     date = datetime.datetime.fromtimestamp(date)
+    date = date.strftime('%Y-%m-%d %H:%M:%S')
     graph_data = generate_graph(x, y, index, filename, [], str(date))
 
     return html.Div(
@@ -449,11 +450,12 @@ def generate_graph(x, y, index, filename, tags_data, uid):
                 dcc.Input(
                     id={'type': 'input_peaks', 'index': index},
                     type='number',
+                    min=0,
                     placeholder='Number of Peaks'),
                 dcc.Input(
                     id={'type': 'input_tags', 'index': index},
                     type='text',
-                    min=0,
+                    persistence=True,
                     placeholder='Tag Name'),
                 dcc.Dropdown(
                     id={'type': 'input_shape', 'index': index},
@@ -879,10 +881,9 @@ def update_splash_data(n_clicks):
                          'locator': i['Peak'] + ', ' + str(i['FWHM'])
                          })
     try:
-        datetime.datetime.strptime(uid, '%Y-%m-%d %H:%M:%S.%f')
+        datetime.datetime.strptime(uid, '%Y-%m-%d %H:%M:%S')
         response = splash_POST_call(uri, tags2add)
     except ValueError:
-        uri = uri[5:]
         splash_data = splash_GET_call(None, None, 0, 1, uid)
         splash_tags = splash_data[0]['tags']
         splash_tags_uid = [tag['uid'] for tag in splash_tags]
