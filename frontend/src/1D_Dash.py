@@ -2,7 +2,6 @@ import base64
 import datetime
 import io
 import os
-import math
 
 import dash
 from dash.dependencies import Input, Output, State, MATCH
@@ -14,18 +13,27 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from scipy import signal
-from astropy.modeling import models, fitting
 
 # Imports for interacting with splash-ml api
 import urllib.request
+import random
 import requests
 import json
 
+from packages.helpers import get_peaks
+
 # Imported code by Ronald Pandolfi
 from packages.targeted_callbacks import targeted_callback
-# Imported code by Robert Tang-Kong
-from packages.hitp import bayesian_block_finder
+
+
+class Tag():
+    def __init__(self, tag_name, peak_x, peak_y, fwhm, uid='TBD', color='TBD'):
+        self.Tag = tag_name
+        self.Peak = str(peak_x) + ', ' + str(peak_y)
+        self.FWHM = str(fwhm)
+        self.tag_uid = uid
+        self.COLOR = color
+
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -44,16 +52,16 @@ SIDEBAR_STYLE = {
         'top': 0,
         'left': 0,
         'bottom': 0,
-        'width': '22rem',
         'padding': '2rem 1rem',
-        'background-color': '#f8f9fa'}
+        'background-color': '#f8f9fa',
+        'width': '15%'}
 
 # the styles for the main content position it to the right of the sidebar and
 # add some padding.
 CONTENT_STYLE = {
-        'margin-left': '24rem',
-        'margin-right': '2rem',
+        'margin-left': '17%',
         'padding': '2rem 1rem'}
+
 
 # Sidebar content, this includes the titles with the splash-ml entry and query
 # button
@@ -118,10 +126,12 @@ app.layout = html.Div([sidebar, content])
 # splash-ml GET request with uri and tag paramaters.  The offset and limit
 # values are hard coded at the moment as splash-ml integration and use case
 # isnt fully explored
-def splash_GET_call(uri, tags, offset, limit):
+def splash_GET_call(uri, tags, offset, limit, uid=None):
     url = 'http://splash:8000/api/v0/datasets?'
     if uri:
         url += ('&uri='+uri)
+    if uid:
+        url += ('&uid='+uid)
     if tags:
         for tag in tags:
             url += ('&tags='+tag)
@@ -134,15 +144,22 @@ def splash_GET_call(uri, tags, offset, limit):
     return data
 
 
-# Takes tags applied to data along wtih the UID of the splash-ml dataset. With
+# Takes tags applied to data along with the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
-def splash_PATCH_call(tag, uid, x, y, fwhm):
-    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
-    data = []
-    data.append({
-        'name': tag,
-        'locator': str(x)+', '+str(y)+', '+str(fwhm)})
+def splash_PATCH_call(uid, tags2add, tags2remove):
+    url = 'http://splash:8000/api/v0/datasets/' + uid + '/tags'
+    data = {'add_tags': tags2add, 'remove_tags': list(tags2remove)}
     return requests.patch(url, json=data).status_code
+
+
+# Takes tags applied to data along with the dataset filename. With those tags
+# and URI it POSTs to the database with the api.
+def splash_POST_call(uri, tags):
+    url = 'http://splash:8000/api/v0/datasets/'
+    dataset = {'type': 'file',
+               'uri': 'data/'+uri,
+               'tags': tags}
+    return requests.post(url, json=dataset).status_code
 
 
 # Handles .xdi files and returns a dataframe of the data in it
@@ -166,18 +183,21 @@ def parseXDI(xdiFile):
 def get_fig(x, y):
     if len(y) > 0:
         fig = go.Figure(
-                go.Scatter(x=x, y=y, name='XRD Data'))
+            go.Scatter(x=x, y=y, name='XRD Data'))
     else:
         fig = px.line(x)
     fig.update_layout(
-             xaxis=dict(
-                rangeslider=dict(
-                        visible=True),
+        xaxis=dict(
+            rangeslider=dict(
+                visible=True),
                 type='linear'),
-             yaxis=dict(
-                 autorange=False,
-                 range=[np.amin(x)-30, np.amax(y)+30],
-                 fixedrange=False))
+        yaxis=dict(
+            autorange=False,
+            range=[np.amin(x)-30, np.amax(y)+30],
+            fixedrange=False),
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=300
+    )
 
     return fig
 
@@ -194,7 +214,7 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
             figure.add_vline(
                     x=float(pos_x),
                     line_width=1,
-                    line_color='purple',
+                    line_color=i['COLOR'],
                     annotation_text=name)
     if base_list:
         figure.add_trace(
@@ -207,21 +227,21 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
             figure.add_trace(
                     go.Scatter(
                         x=unfit_list[0],
-                        y=unfit_list[1]+base_list[1],
+                        y=(np.array(unfit_list[1]) + np.array(base_list[1])),
                         mode='lines',
                         name='unfit'))
         if fit_list is not None:
             figure.add_trace(
                     go.Scatter(
                         x=fit_list[0],
-                        y=fit_list[1]+base_list[1],
+                        y=(np.array(fit_list[1]) + np.array(base_list[1])),
                         mode='lines',
                         name='fit'))
         if residual is not None:
             figure.add_trace(
                     go.Scatter(
                         x=residual[0],
-                        y=residual[1],
+                        y=(np.array(residual[1]) + np.array(base_list[1])),
                         mode='lines',
                         name='residual'))
     else:
@@ -253,9 +273,8 @@ def update_annotation_helper(rows, x, y, unfit_list=None, fit_list=None,
 # parsing splash-ml files found and upload contents to content section of
 # webpage
 def parse_splash_ml(contents, filename, uid, tags, index):
-
     try:
-        # Different if statments to hopefully handel the files types needed
+        # Different if statements to hopefully handle the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
             # The user uploaded a CSV file
@@ -281,20 +300,24 @@ def parse_splash_ml(contents, filename, uid, tags, index):
     if tags is None:
         tags = []
 
+    color = random.sample(range(0, 0xFFFFFF), len(tags))
+    list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
+
     # Building the splash-ml table from tags already in the database
     tags_data = []
-    for i in tags:
-        arr = i['locator'].split()
+    for i, tag in enumerate(tags):
+        arr = tag['locator'].split()
 
         if len(arr) == 3:
             x = arr[0][:-1]
             y = arr[1][:-1]
             fwhm = arr[2]
-            temp = dict(Tag=i['name'], Peak=str(x+', '+y), FWHM=fwhm)
-            tags_data.append(temp)
+            temp = Tag(tag['name'], x, y, fwhm, tag['uid'], list_colors[i])
+            tags_data.append(temp.__dict__)
         else:
-            temp = dict(Tag=i['name'])
-            tags_data.append(temp)
+            temp = Tag(tag['name'])
+            print('MISSING TAG VALUES')
+            tags_data.append(temp.__dict__)
 
     # split down data to work with new get_fig function
     data = pd.DataFrame.to_numpy(df)
@@ -303,102 +326,11 @@ def parse_splash_ml(contents, filename, uid, tags, index):
         y = data[:, 1]
     else:
         y = []
-    # building graph object outside of get_fig() as get_fig() is used in other
-    # locations
-    graph = dcc.Graph(
-            id={'type': 'splash_graph', 'index': index},
-            figure=update_annotation_helper(tags_data, x, y),
-            config={
-                'displayModeBar': True,
-                'displaylogo': False,
-                'modeBarButtonsToRemove': [
-                    'pan2d',
-                    'resetScale2d',
-                    'toggleSpikelines',
-                    'hoverCompareCartesian',
-                    'zoomInGeo',
-                    'zoomOutGeo']})
 
-    graphData = [
-            html.H5(
-                id={'type': 'splash_location', 'index': index},
-                children='uri: '+filename),
-            html.H6(
-                id={'type': 'splash_uid', 'index': index},
-                children='uid: '+uid),
-            # Graph of csv file
-            graph,
-            # Auto resize Y-Axis
-            dcc.Checklist(
-                id={'type': 'splash_resize', 'index': index},
-                options=[
-                    {'label': 'Autoscale Y-Axis',
-                        'value': 'Autoscale Y-Axis'}],
-                value=['Autoscale Y-Axis'],
-                style={
-                    'padding-left': '3rem',
-                    'width': 'fit-content'}),
-            dcc.Checklist(
-                id={'type': 'baseline', 'index': index},
-                options=[
-                    {'label': 'Apply Baseline to Peak Fitting',
-                        'value': 'Apply Baseline to Data'}],
-                style={
-                    'padding-left': '3rem',
-                    'width': 'fit-content'}),
-            html.H6(children=['Only select peak number if you tag window'],
-                    style={'padding-left': '3rem'}),
-            html.Div(
-                children=[
-                    html.H6('Select peaks to find in'),
-                    html.Div(id={'type': 'splash_domain', 'index': index}),
-                    dcc.Input(
-                        id={'type': 'splash_peaks', 'index': index},
-                        type='number',
-                        placeholder='Number of Peaks'),
-                    dcc.Input(
-                        id={'type': 'splash_tags', 'index': index},
-                        type='text',
-                        min=0,
-                        placeholder='Tag Name'),
-                    html.Button(
-                        id={'type': 'add_splash_tags', 'index': index},
-                        children='Tag Window',
-                        style={
-                            'padding-bottom': '3rem'}),
-                    html.Button(
-                        id={'type': 'block_splash_tags', 'index': index},
-                        children='Tag w/ Blocks',
-                        style={
-                            'padding-bottom': '3rem'}),
-                    html.Div(id={'type': 'splash_response', 'index': index})],
-                style={
-                    'width': '30rem',
-                    'padding': '3rem 3rem 3rem 3rem',
-                    'float': 'left'}),
-            html.Div(
-                children=[
-                    html.H5('Current Tags'),
-                    dash_table.DataTable(
-                        id={'type': 'splash_tag_table', 'index': index},
-                        columns=[
-                            {'name': 'Tag', 'id': 'Tag'},
-                            {'name': 'Peak', 'id': 'Peak'},
-                            {'name': 'FWHM', 'id': 'FWHM'}],
-                        data=tags_data,
-                        style_cell={'padding': '1rem'}),
-                    html.Button(
-                        id={'type': 'save_splash', 'index': index},
-                        children='Save Table to Splash',
-                        style={
-                            'padding-bottom': '3rem'})],
-                style={
-                    'margin-left': '33rem',
-                    'margin-right': '2rem',
-                    'padding': '8rem 3rem 3rem 3rem'})]
+    graph_data = generate_graph(x, y, index, filename, tags_data, uid) # MERGING EVERYTHING
 
     return html.Div(
-            children=graphData,
+            children=graph_data,
             style={
                 'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
                 'border-radius': '20px',
@@ -410,10 +342,10 @@ def parse_splash_ml(contents, filename, uid, tags, index):
 def parse_contents(contents, filename, date, index):
     content_type, content_string = contents.split(',')
 
-    npyArr = 'idk man'
+    npyArr = 'Error'
     decoded = base64.b64decode(content_string)
     try:
-        # Different if statments to hopefully handel the files types needed
+        # Different if statements to hopefully handle the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
             content = io.StringIO(decoded.decode('utf-8'))
@@ -447,9 +379,30 @@ def parse_contents(contents, filename, date, index):
         y = []
     # Graph build outside of get_fig() to accomodate for other calls to this
     # function
+    date = datetime.datetime.fromtimestamp(date)
+    date = date.strftime('%Y-%m-%d %H:%M:%S')
+    graph_data = generate_graph(x, y, index, filename, [], str(date))
+
+    return html.Div(
+            children=graph_data,
+            style={
+                'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
+                'border-radius': '20px',
+                'padding': '30px 30px',
+                'margin': '10px'})
+
+
+# Generates the graph and populates the table with tags
+def generate_graph(x, y, index, filename, tags_data, uid):
+    # color = random.sample(range(0, 0xFFFFFF), len(tags_data))
+    # list_colors = ['#'+''.join('%06x' % shade) for shade in color]
+    if len(tags_data) == 0:
+        fig = get_fig(x, y)
+    else:
+        fig = update_annotation_helper(tags_data, x, y)
     graph = dcc.Graph(
             id={'type': 'graph', 'index': index},
-            figure=get_fig(x, y),
+            figure=fig,
             config={
                 'displayModeBar': True,
                 'displaylogo': False,
@@ -461,89 +414,112 @@ def parse_contents(contents, filename, date, index):
                     'zoomInGeo',
                     'zoomOutGeo']})
 
-    graphData = [
-            html.H5(
-                id={'type': 'filename', 'index': index},
-                children=filename),
-            html.H6(datetime.datetime.fromtimestamp(date)),
-            # Graph of csv file
-            graph,
-            # Auto resize the Y-Axis
-            dcc.Checklist(
-                id={'type': 'resize', 'index': index},
-                options=[
-                    {'label': 'Autoscale Y-Axis',
-                        'value': 'Autoscale Y-Axis'}],
-                value=['Autoscale Y-Axis'],
-                style={
-                    'padding-left': '3rem',
-                    'width': 'fit-content'}),
-            dcc.Checklist(
-                id={'type': 'baseline', 'index': index},
-                options=[
-                    {'label': 'Apply Baseline to Peak Fitting',
-                        'value': 'Apply Baseline to Data'}],
-                style={
-                    'padding-left': '3rem',
-                    'width': 'fit-content'}),
-            html.H6(children=['Only select peak number if you tag window'],
-                    style={'padding-left': '3rem'}),
-            html.Div(
-                children=[
-                    html.H6('Select peaks to find in'),
-                    html.Div(id={'type': 'domain', 'index': index}),
-                    dcc.Input(
-                        id={'type': 'input_peaks', 'index': index},
-                        type='number',
-                        placeholder='Number of Peaks'),
-                    dcc.Input(
-                        id={'type': 'input_tags', 'index': index},
-                        type='text',
-                        min=0,
-                        placeholder='Tag Name'),
-                    html.Button(
-                        id={'type': 'apply_labels', 'index': index},
-                        children='Tag Window',
-                        style={
-                            'padding-bottom': '3rem'}),
-                    html.Button(
-                        id={'type': 'block_tag', 'index': index},
-                        children='Tag w/ Blocks',
-                        style={'padding-left': '3rem'})],
-                style={
-                    'width': '30rem',
-                    'padding': '3rem 3rem 3rem 3rem',
-                    'float': 'left'}),
-            html.Div(
-                children=[
-                    html.H5('Current Tags'),
-                    dash_table.DataTable(
-                        id={'type': 'tag_table', 'index': index},
-                        columns=[
-                            {'name': 'Tag', 'id': 'Tag'},
-                            {'name': 'Peak', 'id': 'Peak'},
-                            {'name': 'FWHM', 'id': 'FWHM'}],
-                        style_cell={'padding': '1rem'},
-                        row_deletable=True),
-                    html.Button(
-                        id={'type': 'save_labels', 'index': index},
-                        children='Save Table of Tags'),
-                    dcc.Download(id={
-                        'type': 'download_csv_tags',
-                        'index': index}),
-                    html.Div(id={'type': 'saved_response', 'index': index})],
-                style={
-                    'margin-left': '33rem',
-                    'margin-right': '2rem',
-                    'padding': '8rem 3rem 3rem 3rem'})]
-
-    return html.Div(
-            children=graphData,
+    graph_data = [
+        html.H5(
+            id={'type': 'filename', 'index': index},
+            children=filename),
+        html.H6(
+            id={'type': 'uid', 'index': index},
+            children='uid: ' + uid),
+        # Graph of csv file
+        graph,
+        # Auto resize the Y-Axis
+        dcc.Checklist(
+            id={'type': 'resize', 'index': index},
+            options=[
+                {'label': 'Autoscale Y-Axis',
+                 'value': 'Autoscale Y-Axis'}],
+            value=['Autoscale Y-Axis'],
             style={
-                'box-shadow': '0 4px 8px 0 rgba(0,0,0,0.2)',
-                'border-radius': '20px',
-                'padding': '30px 30px',
-                'margin': '10px'})
+                'padding-left': '3rem',
+                'width': 'fit-content'}),
+        dcc.Checklist(
+            id={'type': 'baseline', 'index': index},
+            options=[
+                {'label': 'Apply Baseline to Peak Fitting',
+                 'value': 'Apply Baseline to Data'}],
+            style={
+                'padding-left': '3rem',
+                'width': 'fit-content'}),
+        html.H6(children=['Only select peak number if you tag window'],
+                style={'padding-left': '3rem'}),
+        html.Div(
+            children=[
+                html.H6('Select peaks to find'),
+                html.Div(id={'type': 'domain', 'index': index}),
+                dcc.Input(
+                    id={'type': 'input_peaks', 'index': index},
+                    type='number',
+                    min=0,
+                    placeholder='Number of Peaks'),
+                dcc.Input(
+                    id={'type': 'input_tags', 'index': index},
+                    type='text',
+                    persistence=True,
+                    placeholder='Tag Name'),
+                dcc.Dropdown(
+                    id={'type': 'input_shape', 'index': index},
+                    options=[
+                        {'label': 'Gaussian', 'value': 'Gaussian'},
+                        {'label': 'Voigt', 'value': 'Voigt'}
+                    ],
+                    placeholder='Peak Shape'),
+                html.Button(
+                    id={'type': 'apply_labels', 'index': index},
+                    children='Tag Window',
+                    style={
+                        'padding-bottom': '3rem'}),
+                html.Button(
+                    id={'type': 'block_tag', 'index': index},
+                    children='Tag w/ Blocks',
+                    style={'padding-left': '3rem'})],
+            style={
+                'width': '20%',
+                'padding': '3rem 3rem 3rem 3rem',
+                'float': 'left'}),
+        html.Div(
+            children=[
+                html.H5('Current Tags'),
+                dash_table.DataTable(
+                    id={'type': 'tag_table', 'index': index},
+                    columns=[
+                        {'name': 'Tag', 'id': 'Tag'},
+                        {'name': 'Peak', 'id': 'Peak'},
+                        {'name': 'FWHM', 'id': 'FWHM'},
+                        {'name': 'COLOR', 'id': 'COLOR'},
+                        {'name': 'UID', 'id': 'tag_uid'}
+                    ],
+                    data=tags_data,
+                    style_data_conditional=[
+                        {'if': {'row_index': i, 'column_id': 'COLOR'},
+                         'background-color': tags_data[i]['COLOR'],
+                         'color': tags_data[i]['COLOR']}
+                        for i in range(len(tags_data))],
+                    style_cell={'padding': '1rem',
+                                'textOverflow': 'ellipsis',
+                                'overflow': 'hidden'},
+                    style_table={'overflowX': 'auto'},
+                    hidden_columns=['tag_uid'],
+                    row_deletable=True),
+                html.Button(
+                    id={'type': 'save_labels', 'index': index},
+                    children='Save Table of Tags'),
+                dcc.Download(id={
+                    'type': 'download_csv_tags',
+                    'index': index}),
+                html.Div(id={'type': 'saved_response', 'index': index}),
+                html.Button(
+                    id={'type': 'save_splash', 'index': index},
+                    children='Save Table to Splash',
+                    style={'padding-bottom': '3rem'}),
+                html.Div(id={'type': 'splash_response', 'index': index})
+            ],
+            style={
+                'margin-left': '27%',
+                'width': '70%',
+                'padding': '3rem 3rem 10rem 3rem'})
+    ]
+    return graph_data
 
 
 # Takes the tags and converts them to a .csv format to save locally for the
@@ -561,163 +537,6 @@ def save_local_file(rows_of_tags, file_name):
     res = dcc.send_file('/app/tmp/'+tags_file)
     os.remove('/app/tmp/'+tags_file)
     return res
-
-
-# The actual peak finding based off of x and y data provided
-def peak_helper(x_data, y_data, num_peaks):
-    flag_list = []
-    total_p = signal.find_peaks_cwt(y_data, 1)
-    total_img = signal.cwt(y_data, signal.ricker, list(range(1, 10)))
-    total_img = np.log(total_img+1)
-    if len(total_p) == 0:
-        return [], [], [], None, None
-    temp_list = []
-    return_p = []
-    if len(total_p > num_peaks):
-        for i in total_p:
-            temp_list.append((y_data[i], i))
-        temp_list.sort()
-        temp_list = temp_list[-num_peaks:]
-        for i in temp_list:
-            return_p.append(i[1])
-        return_p.sort()
-
-    g_unfit = None
-    g_fit = None
-    difference = x_data[1] - x_data[0]
-    for i in return_p:
-        largest_width = 0
-        for i_img in range(len(total_img)):
-            if total_img[i_img][i] > largest_width:
-                largest_width = total_img[i_img][i]
-        stddev = (largest_width*difference)/(2*math.sqrt(2*math.log(2)))
-
-        g_init = models.Gaussian1D(
-                amplitude=y_data[i],
-                mean=x_data[i],
-                stddev=stddev)
-        g_init.mean.min = float(x_data[0])
-        g_init.mean.max = float(x_data[-1])
-        g_init.amplitude.min = 0
-        if g_unfit is None:
-            g_unfit = g_init
-        else:
-            g_unfit = g_unfit+g_init
-    fit_g = fitting.SimplexLSQFitter()
-    if len(return_p) == 1:
-        fit_g = fitting.LevMarLSQFitter()
-    g_fit = fit_g(g_unfit, x_data, y_data)
-
-    FWHM_list = []
-    if len(return_p) == 1:
-        FWHM_list.append(g_fit.stddev.value)
-    else:
-        for i in range(len(return_p)):
-            FWHM_list.append(getattr(g_fit, f"stddev_{i}"))
-            FWHM_list[-1] = FWHM_list[-1].value
-    residual = 0
-    fit_total = 0
-    y_total = 0
-    for i in range(len(x_data)):
-        fit_total += g_fit(x_data[i])
-        y_total += y_data[i]
-    residual = fit_total/y_total
-    residual = abs(1-residual)
-    if residual > 0.10:
-        for i in return_p:
-            flag_list.append(1)
-    else:
-        for i in return_p:
-            flag_list.append(0)
-
-    return return_p, FWHM_list, flag_list, g_unfit, g_fit
-
-
-# The logic on fitting peaks to data split up by blocks, or all the data
-# together.  If data is split by blocks, we attempt to fit 3 peaks to the
-# section
-def get_peaks(x_data, y_data, num_peaks, baseline=None, block=None):
-    base_list = None
-    unfit_list = [[], []]
-    fit_list = [[], []]
-    residual = [[], []]
-    base_model = None
-    g_unfit = None
-    g_fit = None
-    # Linear Model from data on the left wall of the window to data on the
-    # right wall of the window
-    if baseline:
-        base_list = [[], []]
-        slope = (y_data[-1] - y_data[0])/(x_data[-1] - x_data[0])
-        intercept = y_data[0] - (slope * x_data[0])
-        base_model = models.Linear1D(slope=slope, intercept=intercept)
-        for i in range(len(y_data)):
-            y_data[i] = y_data[i] - base_model(x_data[i])
-        base_list[0] = x_data
-        base_list[1] = y_data
-
-    FWHM_list = []
-    peak_list = []
-    flag_list = []
-
-    if block:
-        boundaries = bayesian_block_finder(np.array(x_data), np.array(y_data))
-        for bound_i in range(len(boundaries)):
-            lower = int(boundaries[bound_i])
-            if bound_i == (len(boundaries)-1):
-                upper = len(x_data)
-            else:
-                upper = int(boundaries[bound_i+1])
-            temp_x = x_data[lower:upper]
-            temp_y = y_data[lower:upper]
-            temp_peak, temp_FWHM, temp_flag, unfit, fit = peak_helper(
-                    temp_x,
-                    temp_y,
-                    num_peaks)
-            temp_peak = [i+lower for i in temp_peak]
-            flag_list.extend(temp_flag)
-            FWHM_list.extend(temp_FWHM)
-            peak_list.extend(temp_peak)
-            unfit_list[0].extend(temp_x)
-            fit_list[0].extend(temp_x)
-            for i in temp_x:
-                if unfit is None:
-                    unfit_list[1].append(0)
-                    fit_list[1].append(0)
-                else:
-                    unfit_list[1].append(unfit(i))
-                    fit_list[1].append(fit(i))
-
-    else:
-        peak_list, FWHM_list, flag_list, g_unfit, g_fit = peak_helper(
-                        x_data,
-                        y_data,
-                        num_peaks)
-        unfit_list[0].extend(x_data)
-        fit_list[0].extend(x_data)
-        for i in x_data:
-            if g_unfit is not None:
-                unfit_list[1].append(g_unfit(i))
-                fit_list[1].append(g_fit(i))
-            else:
-                unfit_list[1].append(0)
-                fit_list[1].append(0)
-
-    return_list = []
-    for i in range(len(peak_list)):
-        diction = {}
-        diction['index'] = peak_list[i]
-        diction['FWHM'] = FWHM_list[i]
-        diction['flag'] = flag_list[i]
-        return_list.append(diction)
-
-    residual[0].extend(fit_list[0])
-    temp_fit = np.array(fit_list[1])
-    temp_y = np.array(y_data)
-    resid = temp_y-temp_fit
-    residual[1].extend(resid)
-
-    return return_list, unfit_list, fit_list, residual, base_list
 
 
 # A callback function that automatically scales the range of the interactive
@@ -765,26 +584,6 @@ targeted_callback(
         Output({'type': 'graph', 'index': MATCH}, 'figure'),
         State({'type': 'resize', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
-        app=app)
-
-
-# Targets the splash-ml part of website
-targeted_callback(
-        zoom,
-        Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
-        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-        State({'type': 'splash_resize', 'index': MATCH}, 'value'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-        app=app)
-
-
-# Targets the splash-ml part of website
-targeted_callback(
-        zoom,
-        Input({'type': 'splash_resize', 'index': MATCH}, 'value'),
-        Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-        State({'type': 'splash_resize', 'index': MATCH}, 'value'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
         app=app)
 
 
@@ -859,6 +658,7 @@ def single_tags_table(n_clicks):
     rows = next(state_iter)
     tag = next(state_iter)
     num_peaks = next(state_iter)
+    peak_shape = next(state_iter)
     figure = next(state_iter)
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
@@ -877,28 +677,29 @@ def single_tags_table(n_clicks):
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
-                    num_peaks)
+                    num_peaks,
+                    peak_shape)
         else:
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
+                    peak_shape,
                     baseline=True)
 
-        for i in peak_info:
-            index = i['index']+start
+        color = random.sample(range(0, 0xFFFFFF), len(peak_info))
+        list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
+
+        for i, peak in enumerate(peak_info):
+            index = peak['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+            fwhm = peak['FWHM']
+            if peak['flag'] == 1:
+                temp = Tag('(F)'+tag, x, y, fwhm, 'TBD', list_colors[i])
+                temp = temp.__dict__
             else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag(tag, x, y, fwhm, 'TBD', list_colors[i])
+                temp = temp.__dict__
             if rows:
                 rows.append(temp)
             else:
@@ -930,6 +731,7 @@ targeted_callback(
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
         State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'input_shape', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         app=app)
 
@@ -945,7 +747,9 @@ def multi_tags_table(n_clicks):
     # I try deleting this and the state that goes with it, but it breaks the
     # function each time... I dont know why
     num_peaks = next(state_iter)
+    peak_shape = next(state_iter)
     figure = next(state_iter)
+    num_peaks = 1       # for block detection, the number of peaks is set to 1
     if n_clicks and tag:
         x1 = figure['layout']['xaxis']['range'][0]
         x2 = figure['layout']['xaxis']['range'][1]
@@ -964,33 +768,32 @@ def multi_tags_table(n_clicks):
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
+                    peak_shape,
                     block=True)
         else:
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
+                    peak_shape,
                     baseline=True,
                     block=True)
 
-        for i in peak_info:
-            index = i['index']+start
+        color = random.sample(range(0, 0xFFFFFF), len(peak_info))
+        list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
+
+        for i, peak in enumerate(peak_info):
+            index = peak['index']+start
             x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+            fwhm = peak['FWHM']
+            if peak['flag'] == 1:
+                temp = Tag('(F)'+tag, x, y, fwhm, 'TBD', list_colors[i])
             else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
+                temp = Tag(tag, x, y, fwhm, 'TBD', list_colors[i])
             if rows:
-                rows.append(temp)
+                rows.append(temp.__dict__)
             else:
-                rows = [temp]
+                rows = [temp.__dict__]
 
         x_data = figure['data'][0]['x']
         y_data = figure['data'][0]['y']
@@ -1019,7 +822,23 @@ targeted_callback(
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
         State({'type': 'input_peaks', 'index': MATCH}, 'value'),
+        State({'type': 'input_shape', 'index': MATCH}, 'value'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
+        app=app)
+
+
+# Callback that updates the conditional formatting of the dash table
+def update_table_color(rows):
+    return [{'if': {'row_index': i, 'column_id': 'COLOR'},
+             'background-color': rows[i]['COLOR'],
+             'color': rows[i]['COLOR']}
+            for i in range(len(rows))]
+
+
+targeted_callback(
+        update_table_color,
+        Input({'type': 'tag_table', 'index': MATCH}, 'data'),
+        Output({'type': 'tag_table', 'index': MATCH}, 'style_data_conditional'),
         app=app)
 
 
@@ -1033,184 +852,14 @@ targeted_callback(
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'filename', 'index': MATCH}, 'children'),
         prevent_initial_call=True)
-def save_tags_button(n_clicks, rows, file_name):
+def save_tags_button(n_clicks, rows, filename):
     if n_clicks and rows:
-        save = save_local_file(rows, file_name)
+        # delete the slash (/) if the data comes from splash-ml
+        filename = filename.replace('/', '_')
+        save = save_local_file(rows, filename)
         return save, html.Div('Downloading Tags')
     else:
         return None, html.Div('No Tags Selected')
-
-
-# Order of the table and splash-ml might be different but that shouldn't matter
-# for the current usecase.  Upload to splash-ml happens later, this only
-# handles adding window tagged data to table
-def single_tags_splash(n_clicks):
-    input_states = dash.callback_context.states
-    state_iter = iter(input_states.values())
-    rows = next(state_iter)
-    tag = next(state_iter)
-    num_peaks = next(state_iter)
-    baseline = next(state_iter)
-    figure = next(state_iter)
-    if n_clicks and tag:
-        x1 = figure['layout']['xaxis']['range'][0]
-        x2 = figure['layout']['xaxis']['range'][1]
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-        start, end = 0, len(x_data)
-        for i in range(len(x_data)):
-            if x_data[i] >= x1 and start == 0:
-                start = i
-            if x_data[i] >= x2:
-                end = i+1
-                break
-
-        if baseline is None or len(baseline) == 0:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks)
-        else:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    baseline=True)
-
-        for i in peak_info:
-            index = i['index']+start
-            x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
-            else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
-            if rows:
-                rows.append(temp)
-            else:
-                rows = [temp]
-
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-
-        figure = update_annotation_helper(
-                rows,
-                x_data,
-                y_data,
-                unfit_list,
-                fit_list,
-                residual,
-                base_list)
-
-        global stash_figure
-        stash_figure = figure
-
-    return rows
-
-
-targeted_callback(
-        single_tags_splash,
-        Input({'type': 'add_splash_tags', 'index': MATCH}, 'n_clicks'),
-        Output({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'splash_tags', 'index': MATCH}, 'value'),
-        State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'baseline', 'index': MATCH}, 'value'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-        app=app)
-
-
-# Order of the table and splash-ml might be different but that shouldn't matter
-# for the current usecase.  Upload to splash-ml happens later, this only
-# handles adding block tagged data to table
-def multi_tags_splash(n_clicks):
-    input_states = dash.callback_context.states
-    state_iter = iter(input_states.values())
-    rows = next(state_iter)
-    tag = next(state_iter)
-    num_peaks = next(state_iter)
-    baseline = next(state_iter)
-    figure = next(state_iter)
-    num_peaks = num_peaks
-    if n_clicks and tag:
-        x1 = figure['layout']['xaxis']['range'][0]
-        x2 = figure['layout']['xaxis']['range'][1]
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-        start, end = 0, len(x_data)
-        for i in range(len(x_data)):
-            if x_data[i] >= x1 and start == 0:
-                start = i
-            if x_data[i] >= x2:
-                end = i+1
-                break
-
-        if baseline is None or len(baseline) == 0:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    block=True)
-        else:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    baseline=True,
-                    block=True)
-
-        for i in peak_info:
-            index = i['index']+start
-            x, y = x_data[index], y_data[index]
-            fwhm = i['FWHM']
-            if i['flag'] == 1:
-                temp = dict(
-                        Tag='(F)'+tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
-            else:
-                temp = dict(
-                        Tag=tag,
-                        Peak=str(x)+', '+str(y),
-                        FWHM=str(fwhm))
-            if rows:
-                rows.append(temp)
-            else:
-                rows = [temp]
-
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-
-        figure = update_annotation_helper(
-                rows,
-                x_data,
-                y_data,
-                unfit_list,
-                fit_list,
-                residual,
-                base_list)
-
-        global stash_figure
-        stash_figure = figure
-    return rows
-
-
-targeted_callback(
-        multi_tags_splash,
-        Input({'type': 'block_splash_tags', 'index': MATCH}, 'n_clicks'),
-        Output({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'splash_tags', 'index': MATCH}, 'value'),
-        State({'type': 'splash_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'baseline', 'index': MATCH}, 'value'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-        app=app)
 
 
 # Handles upload of table data to splash-ml.  It first does a GET call, and
@@ -1222,23 +871,26 @@ def update_splash_data(n_clicks):
     rows = next(state_iter)
     uri = next(state_iter)
     uid = next(state_iter)
-    uri = uri[5:]
     uid = uid[5:]
-    splash_data = splash_GET_call(uri, None, 0, 1)
-    if splash_data and splash_data[0]['tags']:
-        offset = len(splash_data[0]['tags'])
-        rows = rows[offset:len(rows)]
-    for i in rows:
-        x = i['Peak'].split()[0][:-1]
-        y = i['Peak'].split()[1]
-        response = splash_PATCH_call(
-                i['Tag'],
-                uid,
-                x,
-                y,
-                i['FWHM'])
-        if response != 200:
-            return html.Div('Response: '+str(response))
+    current_tag_uid = [row['tag_uid'] for row in rows]
+    row_idx_add = [i for i, e in enumerate(current_tag_uid) if e == 'TBD']
+    tags2add = []
+    for idx in row_idx_add:
+        i = rows[idx]
+        tags2add.append({'name': i['Tag'],
+                         'locator': i['Peak'] + ', ' + str(i['FWHM'])
+                         })
+    try:
+        datetime.datetime.strptime(uid, '%Y-%m-%d %H:%M:%S')
+        response = splash_POST_call(uri, tags2add)
+    except ValueError:
+        splash_data = splash_GET_call(None, None, 0, 1, uid)
+        splash_tags = splash_data[0]['tags']
+        splash_tags_uid = [tag['uid'] for tag in splash_tags]
+        tags2remove = np.setdiff1d(splash_tags_uid, current_tag_uid)
+        response = splash_PATCH_call(uid, tags2add, tags2remove)
+    if response != 200:
+        return html.Div('Response: '+str(response))
     return html.Div('Response: 200')
 
 
@@ -1246,9 +898,9 @@ targeted_callback(
         update_splash_data,
         Input({'type': 'save_splash', 'index': MATCH}, 'n_clicks'),
         Output({'type': 'splash_response', 'index': MATCH}, 'children'),
-        State({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'splash_location', 'index': MATCH}, 'children'),
-        State({'type': 'splash_uid', 'index': MATCH}, 'children'),
+        State({'type': 'tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'filename', 'index': MATCH}, 'children'),
+        State({'type': 'uid', 'index': MATCH}, 'children'),
         app=app)
 
 
@@ -1259,20 +911,6 @@ targeted_callback(
         State({'type': 'graph', 'index': MATCH}, 'clickData'),
         State({'type': 'graph', 'index': MATCH}, 'figure'))
 def post_graph_scale(action_dict, data, figure):
-    domain = figure['layout']['xaxis']['range']
-    x1 = domain[0]
-    x2 = domain[1]
-    return html.Div(children=[
-        'Domain: ['+str(round(x1, 2))+', '+str(round(x2, 2))+']'])
-
-
-# Displays the current domain of graph for splash-ml upload.
-@app.callback(
-        Output({'type': 'splash_domain', 'index': MATCH}, 'children'),
-        Input({'type': 'splash_graph', 'index': MATCH}, 'relayoutData'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'clickData'),
-        State({'type': 'splash_graph', 'index': MATCH}, 'figure'))
-def splash_graph_scale(action_dict, data, figure):
     domain = figure['layout']['xaxis']['range']
     x1 = domain[0]
     x2 = domain[1]
@@ -1293,13 +931,8 @@ def update_graph_annotation(rows):
     for i in iter(input_states):
         if str(i).endswith('.figure'):
             figure = dash.callback_context.states[i]
-    # x_data = figure['data'][0]['x']
     x_data = figure['data'][0]['x']
     y_data = figure['data'][0]['y']
-#   if '_template' in figure['layout']['xaxis']['rangeslider']['yaxis']:
-#       del figure['layout']['xaxis']['rangeslider']['yaxis']['_template']
-#   figure = go.Figure(figure)
-
     return update_annotation_helper(rows, x_data, y_data)
 
 
@@ -1309,28 +942,6 @@ targeted_callback(
         Output({'type': 'graph', 'index': MATCH}, 'figure'),
         State({'type': 'graph', 'index': MATCH}, 'figure'),
         app=app)
-
-
-# populates the graph with tags and the peak locations for splash upload
-def update_splash_annotation(rows):
-    global stash_figure
-    if stash_figure:
-        fig = stash_figure
-        stash_figure = None
-        return fig
-    input_states = dash.callback_context.states
-    figure = next(iter(input_states.values()))
-    x_data = figure['data'][0]['x']
-    y_data = figure['data'][0]['y']
-    return update_annotation_helper(rows, x_data, y_data)
-
-
-targeted_callback(
-    update_splash_annotation,
-    Input({'type': 'splash_tag_table', 'index': MATCH}, 'data'),
-    Output({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-    State({'type': 'splash_graph', 'index': MATCH}, 'figure'),
-    app=app)
 
 
 if __name__ == '__main__':

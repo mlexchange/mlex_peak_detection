@@ -8,7 +8,31 @@ import glob
 import pathlib
 import math
 from packages.hitp import bayesian_block_finder
+import requests
+import json
 
+TAG_NAME = 'auto'
+
+# splash-ml POST request
+def splash_POST_call(uid, data_uri):
+    url = 'http://splash:8000/api/v0/datasets'
+    data = {#'uid': uid,
+            'schema_version' : '1.1',
+            'type' : 'file',
+            'uri' : data_uri
+           }
+    return requests.post(url, json=data).content #.status_code
+
+# Takes tags applied to data along wtih the UID of the splash-ml dataset. With
+# those tags and UID it PATCHs to the database with the api.
+def splash_PATCH_call(tag, uid, x, y, fwhm):
+    url = 'http://splash:8000/api/v0/datasets/'+uid+'/tags'
+    data = []
+    data.append({
+        'name': tag,
+        'locator': str(x)+', '+str(y)+', '+str(fwhm)})
+    data_add = {'add_tags': data}
+    return requests.patch(url, json=data_add).status_code
 
 def peak_helper(x_data, y_data):
     num_peaks = 1
@@ -95,15 +119,17 @@ if __name__ == '__main__':
     parser.add_argument('results_dir', help='output filepath')
     args = parser.parse_args()
     OUTPUT_DIR = pathlib.Path(args.results_dir)
-    data_path = pathlib.Path(args.data_dir)
-    for filename in glob.glob(str(data_path)+'/*'):
+    data_path = str(pathlib.Path(args.data_dir))
+    for filename in glob.glob(data_path+'/*'):
         print(str(filename))
         try:
             # Different if statments to hopefully handel the files types needed
             # when graphing 1D data
+            dataset_name = filename.replace(data_path+'/','')
             if filename.endswith('.csv'):
                 # The user uploaded a CSV file
                 df = pd.read_csv(filename)
+                dataset_name = dataset_name.replace('.csv','')
                 # Can't handle anything other than 3 columns for graphing
                 if len(df.columns) != 2:
                     raise
@@ -111,11 +137,15 @@ if __name__ == '__main__':
                 # The user uploaded a numpy file
                 npyArr = np.load(filename)
                 df = pd.DataFrame({'Column1': npyArr})
+                dataset_name = dataset_name.replace('.npy','')
             else:
                 raise
         except Exception as e:
             print("There was an error processing this file: " + str(e))
             continue
+        resp = splash_POST_call(dataset_name,filename)
+        resp_dict = json.loads(resp.decode('utf-8'))
+        dataset_uid = resp_dict['uid']
         data = pd.DataFrame.to_numpy(df)
         x_data = data[:, 0]
         if len(df.columns) == 2:
@@ -161,10 +191,11 @@ if __name__ == '__main__':
             diction = {}
             index = peak_list[i]
             x, y = x_data[index], y_data[index]
-            diction['Tag'] = 'auto'
+            diction['Tag'] = TAG_NAME
             diction['Peak'] = str(x)+', '+str(y)
             diction['FWHM'] = str(FWHM_list[i])
             diction['flag'] = str(flag_list[i])
+            splash_PATCH_call(TAG_NAME, dataset_uid, str(x), str(y), str(FWHM_list[i]))
             return_list.append(diction)
         save_local_file(str(OUTPUT_DIR)+'/', return_list, filename)
         print('peaks found for: {}'.format(filename))

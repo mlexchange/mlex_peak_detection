@@ -25,23 +25,21 @@ services:
       context: 'automatic_detection/'
       dockerfile: 'docker/Dockerfile'
     command: 'python block_detection.py data data/results'
+    depends_on: 
+      - "splash-ml"
     volumes:
       - ./automatic_detection:/app/work
       - ./data:/app/work/data
       
-
   mongo:
     image: mongo
     restart: always
     container_name: "mongodb"
     working_dir: "/mongodbdata/"
-    ports:
-      - '27017:27017'
+#    ports:
+#      - '27017:27017'
     volumes:
-      - "./mongodbdata/:/data/db"
-    #environment
-    #  MONGO_INITDB_ROOT_USERNAME: root
-    #  MONGO_INITDB_ROOT_PASSWORD: example
+      - "/mongodbdata/:/data/db"
 
   splash-ml:
     restart: "unless-stopped"
@@ -65,5 +63,5 @@ volumes: # create named dir and link it to the data folder, so all services can
     driver: local
     driver_opts:
       type: "none"
-      device: "${PWD}/frontend/data/"
+      device: "./frontend/data/"
       o: "bind"
