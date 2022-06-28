@@ -49,7 +49,7 @@ services:
       context: 'splash-ml/'
       dockerfile: 'Dockerfile'
     depends_on:
-      - "mongo"
+      - "mongo_mlex"
     volumes:
       - ../splash-ml:/app/work
     ports:
