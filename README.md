@@ -1,7 +1,7 @@
 # Docker: 1D_XRD app
 
 ## Description
-This docker container automatically finds the peaks within a group of 1D XRD data files and runs a dash app for more percise peak detection.
+This docker compose framework automatically finds the peaks within a group of 1D XRD data files and runs a dash app for more precise peak detection.
 
 To do this create the following directories:
 
@@ -15,7 +15,7 @@ First, let's install docker:
 
 * https://docs.docker.com/engine/install/
 * Next go into the 1D XRD dir
-* type `docker-compose up` into your terminal
+* type `docker-compose up` into your terminal (on more recent [versions](https://docs.docker.com/compose/#compose-v2-and-the-new-docker-compose-command) of the Docker desktop, `compose` is part of the docker CLI, meaning that the command is now `docker compose up`)
 
 Next, open up the dash app or splash-ml API:
 
@@ -24,6 +24,8 @@ Next, open up the dash app or splash-ml API:
 
 Notes:
 - It is assumed that splash-ml handles the path to the dataset, such that file can be read, e.g. "C:/Users/..." vs "/mnt/c/Users/..."
+
+See the [Tasks](./docs/tasks.md) for instructions on using the application.
 
 # Copyright
 MLExchange Copyright (c) 2021, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy). All rights reserved.
