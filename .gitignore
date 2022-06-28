@@ -137,3 +137,5 @@ dmypy.json
 *.jpg
 *.xdi
 *.npy
+
+.vscode
