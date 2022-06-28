@@ -3,6 +3,8 @@
 ## Description
 This docker compose framework automatically finds the peaks within a group of 1D XRD data files and runs a dash app for more precise peak detection.
 
+The project contains standalone version of the [SplashML](./docs/concepts.md#SplashML) tagging framework in order to get a running demo.
+
 To do this create the following directories:
 
 * Clone this directory into any location
