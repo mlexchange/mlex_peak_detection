@@ -31,10 +31,10 @@ services:
       - ./automatic_detection:/app/work
       - ./data:/app/work/data
       
-  mongo:
+  mongo_mlex:
     image: mongo
     restart: always
-    container_name: "mongodb"
+    container_name: "mongodb_mlex"
     working_dir: "/mongodbdata/"
 #    ports:
 #      - '27017:27017'
@@ -46,8 +46,8 @@ services:
     container_name: "splash"
     user: "${UID}:${GID}"
     build:
-      context: '../splash-ml/'
-      dockerfile: 'docker/Dockerfile'
+      context: 'splash-ml/'
+      dockerfile: 'Dockerfile'
     depends_on:
       - "mongo"
     volumes:
