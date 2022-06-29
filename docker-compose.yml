@@ -11,6 +11,7 @@ services:
     command: 'python src/1D_Dash.py'
     environment:
       DATA_DIR: "${COMPOSE_PROJECT_NAME}_data-m"
+      UPLOAD_FOLDER_ROOT: "data"
     volumes:
       - ./data:/app/work/data
       - ./frontend/src:/app/work/src
@@ -18,44 +19,41 @@ services:
     ports:
       - '8050:8050'
 
-  automatic-tags:
-    container_name: "autotag"
-    user: "${UID}:${GID}"
-    build:
-      context: 'automatic_detection/'
-      dockerfile: 'docker/Dockerfile'
-    command: 'python block_detection.py data data/results'
-    depends_on: 
-      - "splash-ml"
-    volumes:
-      - ./automatic_detection:/app/work
-      - ./data:/app/work/data
+#  automatic-tags:
+#    container_name: "autotag"
+#    user: "${UID}:${GID}"
+#    build:
+#      context: 'automatic_detection/'
+#      dockerfile: 'docker/Dockerfile'
+#    command: 'python block_detection.py data data/results'
+#    depends_on:
+#      - "splash"
+#    volumes:
+#      - ./automatic_detection:/app/work
+#      - ./data:/app/work/data
       
   mongo_mlex:
     image: mongo
     restart: always
     container_name: "mongodb_mlex"
     working_dir: "/mongodbdata/"
-#    ports:
-#      - '27017:27017'
     volumes:
       - "/mongodbdata/:/data/db"
 
-  splash-ml:
-    restart: "unless-stopped"
+  splash:
     container_name: "splash"
-    user: "${UID}:${GID}"
     build:
       context: 'splash-ml/'
       dockerfile: 'Dockerfile'
     depends_on:
       - "mongo_mlex"
-    volumes:
-      - ../splash-ml:/app/work
     ports:
-      - '8000:8000'
+      - '8087:80'
     environment:
-       MONGO_DB_URI: mongodb://mongodb:27017/tagging
+       APP_MODULE: "tagging.api:app"
+       LOGLEVEL: DEBUG
+       MONGO_DB_URI: mongodb://mongodb_mlex:27017/tagging
+       MAX_WORKERS: 1
 
 volumes: # create named dir and link it to the data folder, so all services can 
          # use
