@@ -23,11 +23,11 @@ Steps:
 
 * Optional: select [Apply Baseline to Peak Fitting](./concepts.md#Apply_Baseline_to_Peak_Fitting)
 
-> Choose a peak detection method:
+* Choose a peak detection method:
 
-* Option 1: [Window](./concepts.md#Tag_with_Window). This option requires you to also add a value in "Number of Peaks".
+  * Option 1: [Window](./concepts.md#Tag_with_Window). This option requires you to also add a value in "Number of Peaks".
 
-* Option 2: [Blocks](./concepts.md#Tag_with_Blocks).
+  * Option 2: [Blocks](./concepts.md#Tag_with_Blocks).
 
 * Enter a tag name. This name will be used to generate the names of the tags added to [SplashML](./concepts.md#SplashML).
 
