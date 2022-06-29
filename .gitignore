@@ -134,7 +134,7 @@ dmypy.json
 
 # Ignore data files
 *.csv
-*.png
+# *.png
 *.jpg
 *.xdi
 *.npy
