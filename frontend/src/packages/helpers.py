@@ -1,4 +1,5 @@
 import math
+import os
 import numpy as np
 from scipy import signal
 from astropy.modeling import models, fitting
@@ -31,13 +32,13 @@ def peak_helper(x_data, y_data, num_peaks, peak_shape):
         for i_img in range(len(ref)):
             if ref[i_img][i] > largest_width:
                 largest_width = ref[i_img][i]
-        sigma = (largest_width * (x_data[1]-x_data[0])) / c
         if peak_shape == 'Voigt':
             g_init = models.Voigt1D(x_0=xpeak,
                                     amplitude_L=ypeak,
-                                    fwhm_L=c*sigma, #2*gamma,
-                                    fwhm_G=c*sigma)
+                                    fwhm_L=largest_width * (x_data[1] - x_data[0]),
+                                    fwhm_G=largest_width * (x_data[1] - x_data[0]))
         else:
+            sigma = (largest_width * (x_data[1] - x_data[0])) / c
             g_init = models.Gaussian1D(amplitude=ypeak,
                                        mean=xpeak,
                                        stddev=sigma)
@@ -57,13 +58,17 @@ def peak_helper(x_data, y_data, num_peaks, peak_shape):
     FWHM_list = []
     if len(init_ypeaks) == 1:
         if peak_shape == 'Voigt':
-            FWHM_list.append(g_fit.fwhm_G.value)
+            fG = g_fit.fwhm_G.value
+            fL = g_fit.fwhm_L.value
+            FWHM_list.append((0.5346 * fL + np.sqrt(0.2166*(fL ** 2) + (fG ** 2))))
         else:
-            FWHM_list.append(g_fit.stddev.value)
+            FWHM_list.append(c*g_fit.stddev.value)
     else:
         for i in range(len(init_ypeaks)):
             if peak_shape == 'Voigt':
-                FWHM_list.append(1*getattr(g_fit, f"fwhm_G_{i}"))
+                fG = getattr(g_fit, f"fwhm_G_{i}")
+                fL = getattr(g_fit, f"fwhm_L_{i}")
+                FWHM_list.append((0.5346*fL+np.sqrt(0.2166*(fL**2) + (fG**2))))
             else:
                 FWHM_list.append(c*getattr(g_fit, f"stddev_{i}"))
     return ind_peaks, FWHM_list, flag_list, g_unfit, g_fit
@@ -97,6 +102,7 @@ def get_peaks(x_data, y_data, num_peaks, peak_shape, baseline=None, block=None):
     flag_list = []
 
     if block:
+        num_peaks = 1   # 1 peak per block
         boundaries = bayesian_block_finder(np.array(x_data), np.array(y_data))
         for bound_i in range(len(boundaries)):
             lower = int(boundaries[bound_i])
@@ -156,3 +162,28 @@ def get_peaks(x_data, y_data, num_peaks, peak_shape, baseline=None, block=None):
     residual[1].extend(resid)
 
     return return_list, unfit_list, fit_list, residual, base_list
+
+
+def add_paths_from_dir(dir_path, supported_formats, list_file_path):
+    '''
+    Args:
+        dir_path, str:            full path of a directory
+        supported_formats, list:  supported formats, e.g., ['tiff', 'tif', 'jpg', 'jpeg', 'png']
+        list_file_path, [str]:     list of absolute file paths
+
+    Returns:
+        Adding unique file paths to list_file_path, [str]
+    '''
+    root_path, list_dirs, filenames = next(os.walk(dir_path))
+    for filename in filenames:
+        exts = filename.split('.')
+        if exts[-1] in supported_formats and exts[0] != '':
+            file_path = root_path + '/' + filename
+            if file_path not in list_file_path:
+                list_file_path.append(file_path)
+
+    for dirname in list_dirs:
+        new_dir_path = dir_path + '/' + dirname
+        list_file_path = add_paths_from_dir(new_dir_path, supported_formats, list_file_path)
+
+    return list_file_path
