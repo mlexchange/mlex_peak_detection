@@ -154,20 +154,18 @@ app.layout = html.Div(children=[header,
 # splash-ml GET request with uri and tag paramaters.  The offset and limit
 # values are hard coded at the moment as splash-ml integration and use case
 # isnt fully explored
-def splash_GET_call(uri, tags, offset, limit, uid=None):
+def splash_GET_call(uri, tag, offset, limit):
     url = f'{SPLASH_URL}/datasets?'
+    params = {}
     if uri:
-        url += ('&uri='+uris)
-    # if uid:
-    #     url += ('&uid='+uid)
-    if tags:
-        for tag in tags:
-            url += ('&tags='+tag)
+        params['uris'] = [uri]
+    if tag:
+        params['tags'] = [tag]
     if offset:
-        url += ('&page%5Boffset%5D='+str(offset))
+        params['page[offset]'] = offset
     if limit:
-        url += ('&page%5Blimit%5D='+str(limit))
-    data = requests.get(url).json()
+        params['page[limit]'] = limit
+    data = requests.get(url, params=params).json()
     return data
 
 
@@ -529,7 +527,7 @@ def generate_graph(x, y, index, filename, tags_data, uid):
                             style_table={'overflowX': 'auto', 'marginBottom': '5px'},
                             hidden_columns=['tag_uid', 'flag'],
                             row_deletable=True),
-                        dbc.Button('Save Table of Tags',
+                        dbc.Button('Download Tags',
                                    id={'type': 'save_labels', 'index': index},
                                    style={'width': '100%', 'marginBottom': '5px'}),
                         dcc.Download(id={
@@ -537,7 +535,7 @@ def generate_graph(x, y, index, filename, tags_data, uid):
                             'index': index}),
                         html.Div(id={'type': 'saved_response', 'index': index}),
                         dbc.Button(
-                            'Save Table to Splash',
+                            'Save Tags to Splash-ML',
                             id={'type': 'save_splash', 'index': index},
                             style={'width': '100%', 'marginBottom': '5px'}),
                         html.Div(id={'type': 'splash_response', 'index': index})
@@ -640,13 +638,13 @@ targeted_callback(
         State('GET_uri', 'value'),
         State('GET_tag', 'value'),
         prevent_initial_call=True)
-def update_output(iscompleted, n_clicks, upload_filename, uri, list_of_tags):
+def update_output(iscompleted, n_clicks, upload_filename, uri, tagname):
     children = []
     # If splash-ml needs to populate the page
     if n_clicks:
         offset = 0
         limit = 10
-        file_info = splash_GET_call(uri, list_of_tags, offset, limit)
+        file_info = splash_GET_call(uri, tagname, offset, limit)
         children = []
         for i in range(len(file_info)):
             f_type = file_info[i]['type']
