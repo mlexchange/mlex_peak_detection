@@ -1,4 +1,4 @@
-# Docker: 1D_XRD app
+# Peak Detection in 1-D XRD data
 
 ## Description
 This docker compose framework automatically finds the peaks within a group of 1D XRD data files and runs a dash app for more precise peak detection.
