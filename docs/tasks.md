@@ -23,14 +23,18 @@ Steps:
 
 * Optional: select [Apply Baseline to Peak Fitting](./concepts.md#Apply_Baseline_to_Peak_Fitting)
 
-* Enter a Tag Name. This name will be used to generate the names of the tags added to [SplashML](./concepts.md#SplashML).
+> Choose a peak detection method:
 
-* Option 1: click [Tag Window](./concepts.md#tag_window). This option requires you to also add a value in "Number of Peaks".
+* Option 1: [Window](./concepts.md#Tag_with_Window). This option requires you to also add a value in "Number of Peaks".
 
-* Option 2: click [Tag w/ Blocks](./concepts.md#tag_window). This option requires you to also add a value in "Number of Peaks".
+* Option 2: [Blocks](./concepts.md#Tag_with_Blocks).
+
+* Enter a tag name. This name will be used to generate the names of the tags added to [SplashML](./concepts.md#SplashML).
+
+* Choose the [Peak Shape](./concepts.md#Peak_Shape). 
 
 ### What happened?
- The application displays detected peaks in the graph, and displays in the `Current Tags` table the list of detected peaks. Each tag in the `Current Tags` can be saved into SplashML as a new tag, with the `Peak` location (midpoint and amplitude) and the Full Width Half Max of the peak. A color was assigned to each tag, which matches the color in the graph. One can now save `Table of Tags`, which does what?? or `Save to Splash`, which inserts them into SplashML.
+ The application displays detected peaks in the graph, and displays in the `Current Tags` table the list of detected peaks. Each tag in the `Current Tags` can be saved into SplashML as a new tag, with the `Peak` location (midpoint and amplitude) and the estimated Full Width Half Max of the peak. A color was assigned to each tag, which matches the color in the graph. One can now save `Table of Tags`, which downloads the table of detected peaks as a csv file or `Save to Splash`, which inserts them into SplashML.
 
 ## Batch Detection
 A future feature which allows the user to bulk detect peaks on a number of files all at once.
