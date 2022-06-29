@@ -2,12 +2,16 @@ import base64
 import datetime
 import io
 import os
+import pathlib
+import zipfile
 
 import dash
 from dash.dependencies import Input, Output, State, MATCH
+import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
 import dash_table
+import dash_uploader as du
 
 import pandas as pd
 import plotly.express as px
@@ -20,24 +24,23 @@ import random
 import requests
 import json
 
-from packages.helpers import get_peaks
+from packages.helpers import get_peaks, add_paths_from_dir
 
 # Imported code by Ronald Pandolfi
 from packages.targeted_callbacks import targeted_callback
 
 
 class Tag():
-    def __init__(self, tag_name, peak_x, peak_y, fwhm, uid='TBD', color='TBD'):
+    def __init__(self, tag_name, peak_x, peak_y, fwhm, flag, uid='TBD', color='TBD'):
         self.Tag = tag_name
         self.Peak = str(peak_x) + ', ' + str(peak_y)
         self.FWHM = str(fwhm)
+        self.flag = flag
         self.tag_uid = uid
         self.COLOR = color
 
 
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, "../assets/mlex-style.css"]) #, 'https://codepen.io/chriddyp/pen/bWLwgP.css'])
 
 # Figure of graph when there are unfit and fit curves added on.
 global stash_figure
@@ -45,6 +48,10 @@ stash_figure = None
 
 global DATA_DIR
 DATA_DIR = os.environ['DATA_DIR']
+UPLOAD_FOLDER_ROOT = os.environ['UPLOAD_FOLDER_ROOT']
+SPLASH_URL = 'http://splash:80/api/v0'
+
+du.configure_upload(app, UPLOAD_FOLDER_ROOT, use_upload_id=False)
 
 # the style arguments for the sidebar. We use position:fixed and a fixed width
 SIDEBAR_STYLE = {
@@ -62,76 +69,97 @@ CONTENT_STYLE = {
         'margin-left': '17%',
         'padding': '2rem 1rem'}
 
+# header
+header = dbc.Navbar(
+    dbc.Container([
+        dbc.Row(
+            [
+                dbc.Col(
+                    html.Img(id="logo",
+                             src='assets/mlex.png',
+                             height="60px"),
+                    md="auto"),
+                dbc.Col(
+                    [html.Div(children=html.H3("MLExchange | Peak Detection"),
+                              id="app-title")],
+                    md=True,
+                    align="center",
+                )
+            ],
+            align="center",
+        ),
+        dbc.Row([
+            dbc.Col([dbc.NavbarToggler(id="navbar-toggler")],
+                    md=2)],
+            align="center"),
+    ], fluid=True),
+    dark=True,
+    color="dark",
+    sticky="top",
+)
+
 
 # Sidebar content, this includes the titles with the splash-ml entry and query
 # button
-sidebar = html.Div(
-        id='sidebar',
-        children=[
-            html.H2("1D XRD", className="display-4"),
-            html.Hr(),
-            html.P(
-                "A simple labeler using Splash-ML and Local Files",
-                className="lead"),
-            html.Div(
-                children=[
-                    dcc.Input(
-                        id='GET_uri',
-                        placeholder='Pick URI',
-                        type='text'),
-                    dcc.Input(
-                        id='GET_tag',
-                        placeholder='Pick Tag')],
-                style={
-                    'lineHeight': '60px',
-                    'textAlign': 'center'}),
-            html.Div(
-                children=html.Button(
-                    id='splash_ml_data',
-                    children='Query Splash-ML'),
-                style={
-                    'textAlign': 'center'})],
+sidebar = dbc.Card(
+    id='sidebar',
+    children=[
+        dbc.CardHeader(dbc.Label('Query from Splash-ML', className='mr-2')),
+        dbc.CardBody([
+            dcc.Input(id='GET_uri',
+                      placeholder='Pick URI',
+                      type='text',
+                      style={'width': '100%', 'marginBottom': '5px'}),
+            dcc.Input(id='GET_tag',
+                      placeholder='Pick Tag',
+                      type='text',
+                      style={'width': '100%', 'marginBottom': '5px'}),
+            dbc.Button('QUERY',
+                       id='splash_ml_data',
+                       className="ms-auto",
+                       n_clicks=0,
+                       style={'width': '100%'})
+        ])
+    ],
+    style={'margin-left': '1rem', 'margin-right': '0rem'}
+)
 
-        style=SIDEBAR_STYLE)
 
 # Content section to the right of the sidebar.  This includes the upload bar
 # and graphs to be tagged once loaded into app.
 content = html.Div([
-        dcc.Upload(
-            id='upload_data',
-            children=html.Div([
-                'Drag and Drop or ',
-                html.A('Select Files')]),
-            style={
-                'height': '60px',
-                'lineHeight': '60px',
-                'borderWidth': '1px',
-                'borderStyle': 'dashed',
-                'borderRadius': '5px',
-                'textAlign': 'center',
-                'margin': '10px'},
-            # Allow multiple files to be uploaded
-            multiple=True),
-        html.Div(
-            children='Or Query Splash-ML',
-            style={'textAlign': 'center'}),
-        html.Div(id='output_data_upload')],
-    style=CONTENT_STYLE)
+    du.Upload(
+        id="upload_data",
+        max_file_size=1800,  # 1800 Mb
+        cancel_button=True,
+        pause_button=True
+    ),
+    html.Div(
+        children='Or Query Splash-ML',
+        style={'textAlign': 'center'}),
+    html.Div(id='output_data_upload')],
+    style={'margin-left': '0rem', 'margin-top': '1rem', 'margin-right': '1rem'}
+)
 
 
 # Setting up initial webpage layout
-app.layout = html.Div([sidebar, content])
+app.layout = html.Div(children=[header,
+                                dbc.Row(children=[dbc.Col(sidebar, width=3),
+                                                  dbc.Col(content, width=9)],
+                                        justify='center')
+                                ]
+                      )
 
 
 # splash-ml GET request with uri and tag paramaters.  The offset and limit
 # values are hard coded at the moment as splash-ml integration and use case
 # isnt fully explored
 def splash_GET_call(uri, tags, offset, limit, uid=None):
-    url = 'http://splash:8000/api/v0/datasets?'
+    url = f'{SPLASH_URL}/datasets?'
     if uri:
-        url += ('&uri='+uri)
-    if uid:
-        url += ('&uid='+uid)
+        url += ('&uri='+uris)
+    # if uid:
+    #     url += ('&uid='+uid)
     if tags:
         for tag in tags:
             url += ('&tags='+tag)
@@ -139,15 +167,14 @@ def splash_GET_call(uri, tags, offset, limit, uid=None):
         url += ('&page%5Boffset%5D='+str(offset))
     if limit:
         url += ('&page%5Blimit%5D='+str(limit))
-    response = urllib.request.urlopen(url)
-    data = json.loads(response.read())
+    data = requests.get(url).json()
     return data
 
 
 # Takes tags applied to data along with the UID of the splash-ml dataset. With
 # those tags and UID it PATCHs to the database with the api.
 def splash_PATCH_call(uid, tags2add, tags2remove):
-    url = 'http://splash:8000/api/v0/datasets/' + uid + '/tags'
+    url = f'{SPLASH_URL}/datasets/' + uid + '/tags'
     data = {'add_tags': tags2add, 'remove_tags': list(tags2remove)}
     return requests.patch(url, json=data).status_code
 
@@ -155,9 +182,9 @@ def splash_PATCH_call(uid, tags2add, tags2remove):
 # Takes tags applied to data along with the dataset filename. With those tags
 # and URI it POSTs to the database with the api.
 def splash_POST_call(uri, tags):
-    url = 'http://splash:8000/api/v0/datasets/'
+    url = f'{SPLASH_URL}/datasets/'
     dataset = {'type': 'file',
-               'uri': 'data/'+uri,
+               'uri': uri,
                'tags': tags}
     return requests.post(url, json=dataset).status_code
 
@@ -306,13 +333,11 @@ def parse_splash_ml(contents, filename, uid, tags, index):
     # Building the splash-ml table from tags already in the database
     tags_data = []
     for i, tag in enumerate(tags):
-        arr = tag['locator'].split()
-
-        if len(arr) == 3:
-            x = arr[0][:-1]
-            y = arr[1][:-1]
-            fwhm = arr[2]
-            temp = Tag(tag['name'], x, y, fwhm, tag['uid'], list_colors[i])
+        if tag['locator']['path']['Xpeak']:
+            x = tag['locator']['path']['Xpeak']
+            y = tag['locator']['path']['Ypeak']
+            fwhm = tag['locator']['path']['fwhm']
+            temp = Tag(tag['name'], x, y, fwhm, tag['locator']['path']['flag'], tag['uid'], list_colors[i])
             tags_data.append(temp.__dict__)
         else:
             temp = Tag(tag['name'])
@@ -339,33 +364,27 @@ def parse_splash_ml(contents, filename, uid, tags, index):
 
 
 # Parsing uploaded files to display in content section of the website
-def parse_contents(contents, filename, date, index):
-    content_type, content_string = contents.split(',')
-
+def parse_contents(filename, index):
     npyArr = 'Error'
-    decoded = base64.b64decode(content_string)
     try:
         # Different if statements to hopefully handle the files types needed
         # when graphing 1D data
         if filename.endswith('.csv'):
-            content = io.StringIO(decoded.decode('utf-8'))
             # The user uploaded a CSV file
-            df = pd.read_csv(content)
+            df = pd.read_csv(filename)
             # Can't handle anything other than 3 columns for graphing
             if len(df.columns) != 2:
                 raise
         if filename.endswith('.xdi'):
-            content = io.StringIO(decoded.decode('utf-8'))
             # The user uploaded a XDI file
-            df = parseXDI(content)
+            df = parseXDI(filename)
         if filename.endswith('.npy'):
             # The user uploaded a numpy file
-            content = io.BytesIO(decoded)
-            npyArr = np.load(content)
+            npyArr = np.load(filename)
             df = pd.DataFrame({'Column1': npyArr})
 
     except Exception as e:
-        print(e)
+        print(f'File {filename} with error {e}')
         return html.Div([
             'There was an error processing this file. '+str(npyArr)
         ])
@@ -379,6 +398,7 @@ def parse_contents(contents, filename, date, index):
         y = []
     # Graph build outside of get_fig() to accomodate for other calls to this
     # function
+    date = os.path.getmtime(filename)
     date = datetime.datetime.fromtimestamp(date)
     date = date.strftime('%Y-%m-%d %H:%M:%S')
     graph_data = generate_graph(x, y, index, filename, [], str(date))
@@ -440,86 +460,108 @@ def generate_graph(x, y, index, filename, tags_data, uid):
                  'value': 'Apply Baseline to Data'}],
             style={
                 'padding-left': '3rem',
-                'width': 'fit-content'}),
-        html.H6(children=['Only select peak number if you tag window'],
-                style={'padding-left': '3rem'}),
-        html.Div(
-            children=[
-                html.H6('Select peaks to find'),
-                html.Div(id={'type': 'domain', 'index': index}),
-                dcc.Input(
-                    id={'type': 'input_peaks', 'index': index},
-                    type='number',
-                    min=0,
-                    placeholder='Number of Peaks'),
-                dcc.Input(
-                    id={'type': 'input_tags', 'index': index},
-                    type='text',
-                    persistence=True,
-                    placeholder='Tag Name'),
-                dcc.Dropdown(
-                    id={'type': 'input_shape', 'index': index},
-                    options=[
-                        {'label': 'Gaussian', 'value': 'Gaussian'},
-                        {'label': 'Voigt', 'value': 'Voigt'}
-                    ],
-                    placeholder='Peak Shape'),
-                html.Button(
-                    id={'type': 'apply_labels', 'index': index},
-                    children='Tag Window',
-                    style={
-                        'padding-bottom': '3rem'}),
-                html.Button(
-                    id={'type': 'block_tag', 'index': index},
-                    children='Tag w/ Blocks',
-                    style={'padding-left': '3rem'})],
-            style={
-                'width': '20%',
-                'padding': '3rem 3rem 3rem 3rem',
-                'float': 'left'}),
-        html.Div(
-            children=[
-                html.H5('Current Tags'),
-                dash_table.DataTable(
-                    id={'type': 'tag_table', 'index': index},
-                    columns=[
-                        {'name': 'Tag', 'id': 'Tag'},
-                        {'name': 'Peak', 'id': 'Peak'},
-                        {'name': 'FWHM', 'id': 'FWHM'},
-                        {'name': 'COLOR', 'id': 'COLOR'},
-                        {'name': 'UID', 'id': 'tag_uid'}
-                    ],
-                    data=tags_data,
-                    style_data_conditional=[
-                        {'if': {'row_index': i, 'column_id': 'COLOR'},
-                         'background-color': tags_data[i]['COLOR'],
-                         'color': tags_data[i]['COLOR']}
-                        for i in range(len(tags_data))],
-                    style_cell={'padding': '1rem',
-                                'textOverflow': 'ellipsis',
-                                'overflow': 'hidden'},
-                    style_table={'overflowX': 'auto'},
-                    hidden_columns=['tag_uid'],
-                    row_deletable=True),
-                html.Button(
-                    id={'type': 'save_labels', 'index': index},
-                    children='Save Table of Tags'),
-                dcc.Download(id={
-                    'type': 'download_csv_tags',
-                    'index': index}),
-                html.Div(id={'type': 'saved_response', 'index': index}),
-                html.Button(
-                    id={'type': 'save_splash', 'index': index},
-                    children='Save Table to Splash',
-                    style={'padding-bottom': '3rem'}),
-                html.Div(id={'type': 'splash_response', 'index': index})
-            ],
-            style={
-                'margin-left': '27%',
-                'width': '70%',
-                'padding': '3rem 3rem 10rem 3rem'})
+                'width': 'fit-content',
+                'padding-bottom': '2rem'}),
+        dbc.Row([
+            dbc.Col(
+                children=[
+                    html.H6("Detection method:"),
+                    dcc.Dropdown(
+                        id={'type': 'params_selection', 'index': index},
+                        options=[
+                            {'label': 'Window', 'value': 'window'},
+                            {'label': 'Blocks', 'value': 'blocks'}
+                        ],
+                        placeholder='Method',
+                        value='blocks',
+                        style={'width': '100%', 'marginBottom': '5px'}
+                    ),
+                    html.Div(id={'type': 'domain', 'index': index}),
+                    html.Div(id={'type': 'show_num_peaks', 'index': index},
+                             children=[dcc.Input(
+                                 id={'type': 'input_peaks', 'index': index},
+                                 type='number',
+                                 min=0,
+                                 placeholder='Number of Peaks',
+                                 style={'width': '100%', 'marginBottom': '5px'})]
+                             ),
+                    dcc.Input(id={'type': 'input_tags', 'index': index},
+                              type='text',
+                              persistence=True,
+                              placeholder='Tag Name',
+                              style={'width': '100%', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id={'type': 'input_shape', 'index': index},
+                                 options=[{'label': 'Gaussian', 'value': 'Gaussian'},
+                                          {'label': 'Voigt', 'value': 'Voigt'}],
+                                 placeholder='Peak Shape',
+                                 style={'width': '100%', 'marginBottom': '5px'}),
+                    dbc.Button('TAG',
+                               id={'type': 'tag', 'index': index},
+                               style={'width': '100%', 'marginBottom': '5px'})
+                ], width=3),
+            dbc.Col(
+                html.Div(
+                    children=[
+                        html.H5('Current Tags'),
+                        dash_table.DataTable(
+                            id={'type': 'tag_table', 'index': index},
+                            columns=[
+                                {'name': 'Tag', 'id': 'Tag'},
+                                {'name': 'Peak', 'id': 'Peak'},
+                                {'name': 'FWHM', 'id': 'FWHM'},
+                                {'name': 'flag', 'id': 'flag'},
+                                {'name': 'COLOR', 'id': 'COLOR'},
+                                {'name': 'UID', 'id': 'tag_uid'}
+                            ],
+                            data=tags_data,
+                            style_data_conditional=[
+                                {'if': {'row_index': i, 'column_id': 'COLOR'},
+                                 'background-color': tags_data[i]['COLOR'],
+                                 'color': tags_data[i]['COLOR']}
+                                for i in range(len(tags_data))],
+                            style_cell={'padding': '1rem',
+                                        'textOverflow': 'ellipsis',
+                                        'overflow': 'hidden',
+                                        'overflowX': 'auto',
+                                        'textAlign': 'left',
+                                        'font-size': '15px'},
+                            css=[{'selector': '.show-hide', 'rule': "display: none"}],
+                            style_table={'overflowX': 'auto', 'marginBottom': '5px'},
+                            hidden_columns=['tag_uid', 'flag'],
+                            row_deletable=True),
+                        dbc.Button('Save Table of Tags',
+                                   id={'type': 'save_labels', 'index': index},
+                                   style={'width': '100%', 'marginBottom': '5px'}),
+                        dcc.Download(id={
+                            'type': 'download_csv_tags',
+                            'index': index}),
+                        html.Div(id={'type': 'saved_response', 'index': index}),
+                        dbc.Button(
+                            'Save Table to Splash',
+                            id={'type': 'save_splash', 'index': index},
+                            style={'width': '100%', 'marginBottom': '5px'}),
+                        html.Div(id={'type': 'splash_response', 'index': index})
+                    ]),
+                width=9
+            )
+        ])
     ]
     return graph_data
+
+
+@app.callback(
+    Output({'type': 'show_num_peaks', 'index': MATCH}, 'style'),
+    Input({'type': 'params_selection', 'index': MATCH}, 'value')
+)
+def get_params(selection):
+    '''
+    This callback displays the corresponding parameters per method
+    :param selection: Peak detection method
+    :return: style
+    '''
+    if selection == 'blocks':
+        return {'display': 'none'}
+    return {}
 
 
 # Takes the tags and converts them to a .csv format to save locally for the
@@ -531,7 +573,7 @@ def save_local_file(rows_of_tags, file_name):
     for i in rows_of_tags:
         x1 = i['Peak'].split()[0][:-1]
         x2 = i['Peak'].split()[1]
-        f.write(i['Tag']+','+x1+','+x2+','+i['FWHM']+'\n')
+        f.write(i['Tag']+','+x1+','+x2+','+i['FWHM']+','+str(i['flag'])+'\n')
     f.close()
 
     res = dcc.send_file('/app/tmp/'+tags_file)
@@ -591,32 +633,17 @@ targeted_callback(
 # the whole process (could be split into targeted callbacks for organization)
 @app.callback(
         Output('output_data_upload', 'children'),
-        Output('upload_data', 'contents'),
         Output('splash_ml_data', 'n_clicks'),
-        Input('upload_data', 'contents'),
+        Input('upload_data', 'isCompleted'),
         Input('splash_ml_data', 'n_clicks'),
-        State('upload_data', 'filename'),
-        State('upload_data', 'last_modified'),
+        State('upload_data', 'fileNames'),
         State('GET_uri', 'value'),
         State('GET_tag', 'value'),
         prevent_initial_call=True)
-def update_output(
-        list_of_contents,
-        n_clicks,
-        list_of_names,
-        list_of_dates,
-        uri,
-        list_of_tags):
+def update_output(iscompleted, n_clicks, upload_filename, uri, list_of_tags):
     children = []
-    # If local upload needs to populate the page
-    if list_of_contents:
-        for i in range(len(list_of_contents)):
-            c = list_of_contents[i]
-            n = list_of_names[i]
-            d = list_of_dates[i]
-            children.append(parse_contents(c, n, d, i))
     # If splash-ml needs to populate the page
-    elif n_clicks:
+    if n_clicks:
         offset = 0
         limit = 10
         file_info = splash_GET_call(uri, list_of_tags, offset, limit)
@@ -625,11 +652,12 @@ def update_output(
             f_type = file_info[i]['type']
             if f_type == 'file':
                 try:
-                    c = open(file_info[i]['uri'], 'r')
+                    filename = file_info[i]['uri']
+                    c = open(filename, 'r')
                 except Exception as e:
-                    print(e)
+                    print(f'File {filename} with error {e}')
                     children.append(
-                            html.Div('File path not found from splash-ml'))
+                        html.Div('File path not found from splash-ml'))
                     continue
                 n = file_info[i]['uri']
                 d = file_info[i]['uid']
@@ -644,9 +672,34 @@ def update_output(
                 print('work in progress')
             else:
                 children.append(html.Div('Invalid file type from splash-ml'))
+
+    elif iscompleted:
+        list_filenames = []
+        supported_formats = ['csv', 'npy']
+        if upload_filename is not None:
+            path_to_zip_file = pathlib.Path(UPLOAD_FOLDER_ROOT) / upload_filename[0]
+            if upload_filename[0].split('.')[-1] == 'zip':  # unzip files and delete zip file
+                zip_ref = zipfile.ZipFile(path_to_zip_file)  # create zipfile object
+                path_to_folder = pathlib.Path(UPLOAD_FOLDER_ROOT) / upload_filename[0].split('.')[-2]
+                if (upload_filename[0].split('.')[-2] + '/') in zip_ref.namelist():
+                    zip_ref.extractall(pathlib.Path(UPLOAD_FOLDER_ROOT))  # extract file to dir
+                else:
+                    zip_ref.extractall(path_to_folder)
+                zip_ref.close()  # close file
+                os.remove(path_to_zip_file)
+                list_filenames = add_paths_from_dir(str(path_to_folder), supported_formats, list_filenames)
+            else:
+                list_filenames.append(str(path_to_zip_file))
+
+        # If local upload needs to populate the page
+        if list_filenames:
+            for indx, filename in enumerate(list_filenames):
+                children.append(parse_contents(filename, indx))
+
     if len(children) == 0:
         children.append(html.Div('No data found to graph'))
-    return children, [], 0
+
+    return children, 0
 
 
 # Tag callback for when the graph is from uploaded data.  Updates the tag table
@@ -654,6 +707,7 @@ def update_output(
 def single_tags_table(n_clicks):
     input_states = dash.callback_context.states
     state_iter = iter(input_states.values())
+    method = next(state_iter)
     baseline = next(state_iter)
     rows = next(state_iter)
     tag = next(state_iter)
@@ -678,14 +732,19 @@ def single_tags_table(n_clicks):
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
-                    peak_shape)
+                    peak_shape,
+                    False,
+                    method == 'blocks'
+            )
         else:
             peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
                     x_data[start:end],
                     y_data[start:end],
                     num_peaks,
                     peak_shape,
-                    baseline=True)
+                    True,
+                    method == 'blocks'
+            )
 
         color = random.sample(range(0, 0xFFFFFF), len(peak_info))
         list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
@@ -695,10 +754,10 @@ def single_tags_table(n_clicks):
             x, y = x_data[index], y_data[index]
             fwhm = peak['FWHM']
             if peak['flag'] == 1:
-                temp = Tag('(F)'+tag, x, y, fwhm, 'TBD', list_colors[i])
+                temp = Tag('(F)'+tag, x, y, fwhm, peak['flag'], 'TBD', list_colors[i])
                 temp = temp.__dict__
             else:
-                temp = Tag(tag, x, y, fwhm, 'TBD', list_colors[i])
+                temp = Tag(tag, x, y, fwhm, peak['flag'], 'TBD', list_colors[i])
                 temp = temp.__dict__
             if rows:
                 rows.append(temp)
@@ -725,99 +784,9 @@ def single_tags_table(n_clicks):
 
 targeted_callback(
         single_tags_table,
-        Input({'type': 'apply_labels', 'index': MATCH}, 'n_clicks'),
+        Input({'type': 'tag', 'index': MATCH}, 'n_clicks'),
         Output({'type': 'tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'baseline', 'index': MATCH}, 'value'),
-        State({'type': 'tag_table', 'index': MATCH}, 'data'),
-        State({'type': 'input_tags', 'index': MATCH}, 'value'),
-        State({'type': 'input_peaks', 'index': MATCH}, 'value'),
-        State({'type': 'input_shape', 'index': MATCH}, 'value'),
-        State({'type': 'graph', 'index': MATCH}, 'figure'),
-        app=app)
-
-
-# Tag callback for when the graph is from uploaded data.  Updates the tag table
-# and saves it in current session.  Handles block tagging
-def multi_tags_table(n_clicks):
-    input_states = dash.callback_context.states
-    state_iter = iter(input_states.values())
-    baseline = next(state_iter)
-    rows = next(state_iter)
-    tag = next(state_iter)
-    # I try deleting this and the state that goes with it, but it breaks the
-    # function each time... I dont know why
-    num_peaks = next(state_iter)
-    peak_shape = next(state_iter)
-    figure = next(state_iter)
-    num_peaks = 1       # for block detection, the number of peaks is set to 1
-    if n_clicks and tag:
-        x1 = figure['layout']['xaxis']['range'][0]
-        x2 = figure['layout']['xaxis']['range'][1]
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-        start, end = 0, len(x_data)
-        for i in range(len(x_data)):
-            if x_data[i] >= x1 and start == 0:
-                start = i
-            if x_data[i] >= x2:
-                end = i+1
-                break
-
-        if baseline is None or len(baseline) == 0:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    peak_shape,
-                    block=True)
-        else:
-            peak_info, unfit_list, fit_list, residual, base_list = get_peaks(
-                    x_data[start:end],
-                    y_data[start:end],
-                    num_peaks,
-                    peak_shape,
-                    baseline=True,
-                    block=True)
-
-        color = random.sample(range(0, 0xFFFFFF), len(peak_info))
-        list_colors = ['#' + ''.join('%06x' % shade) for shade in color]
-
-        for i, peak in enumerate(peak_info):
-            index = peak['index']+start
-            x, y = x_data[index], y_data[index]
-            fwhm = peak['FWHM']
-            if peak['flag'] == 1:
-                temp = Tag('(F)'+tag, x, y, fwhm, 'TBD', list_colors[i])
-            else:
-                temp = Tag(tag, x, y, fwhm, 'TBD', list_colors[i])
-            if rows:
-                rows.append(temp.__dict__)
-            else:
-                rows = [temp.__dict__]
-
-        x_data = figure['data'][0]['x']
-        y_data = figure['data'][0]['y']
-
-        figure = update_annotation_helper(
-                rows,
-                x_data,
-                y_data,
-                unfit_list,
-                fit_list,
-                residual,
-                base_list)
-
-        global stash_figure
-        stash_figure = figure
-    num_peaks = num_peaks
-
-    return rows
-
-
-targeted_callback(
-        multi_tags_table,
-        Input({'type': 'block_tag', 'index': MATCH}, 'n_clicks'),
-        Output({'type': 'tag_table', 'index': MATCH}, 'data'),
+        State({'type': 'params_selection', 'index': MATCH}, 'value'),
         State({'type': 'baseline', 'index': MATCH}, 'value'),
         State({'type': 'tag_table', 'index': MATCH}, 'data'),
         State({'type': 'input_tags', 'index': MATCH}, 'value'),
@@ -877,8 +846,15 @@ def update_splash_data(n_clicks):
     tags2add = []
     for idx in row_idx_add:
         i = rows[idx]
+        peak = i['Peak'].split()
+        x = float(peak[0][:-1])
+        y = float(peak[1][:-1])
         tags2add.append({'name': i['Tag'],
-                         'locator': i['Peak'] + ', ' + str(i['FWHM'])
+                         'locator': {'spec': 'Peak location',
+                                     'path': {'Xpeak': x,
+                                              'Ypeak': y,
+                                              'fwhm': i['FWHM'],
+                                              'flag': i['flag']}}
                          })
     try:
         datetime.datetime.strptime(uid, '%Y-%m-%d %H:%M:%S')
