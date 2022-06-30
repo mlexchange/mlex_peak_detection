@@ -11,6 +11,9 @@ Currently, the 1D XRD demo accepts a 2 column comma-separated (.csv) files, with
 1.512500073598311845e+00,1.727255455621030933e+01
 1.517500074312851721e+00,1.817530381724509425e+01
 ```
+
+While this application was designed for 1-D XRD data, any 1-D dataset can benefit from this implementation as long as its peaks present a Gaussian- or Voigt-like shape. 
+
 ## Single File Detection
 The 1D XRD application lets you provide a file, label detect peaks, and store the those peaks as features in the [SplashML](./concepts.md#SplashML) database.
 
