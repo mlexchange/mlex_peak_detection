@@ -104,7 +104,7 @@ header = dbc.Navbar(
 sidebar = dbc.Card(
     id='sidebar',
     children=[
-        dbc.CardHeader(dbc.Label('Query from Splash-ML', className='mr-2')),
+        dbc.CardHeader(dbc.Label('Query from SplashML', className='mr-2')),
         dbc.CardBody([
             dcc.Input(id='GET_uri',
                       placeholder='Pick URI',
@@ -135,7 +135,7 @@ content = html.Div([
         pause_button=True
     ),
     html.Div(
-        children='Or Query Splash-ML',
+        children='Or Query SplashML',
         style={'textAlign': 'center'}),
     html.Div(id='output_data_upload')],
     style={'margin-left': '0rem', 'margin-top': '1rem', 'margin-right': '1rem'}
@@ -535,7 +535,7 @@ def generate_graph(x, y, index, filename, tags_data, uid):
                             'index': index}),
                         html.Div(id={'type': 'saved_response', 'index': index}),
                         dbc.Button(
-                            'Save Tags to Splash-ML',
+                            'Save Tags to SplashML',
                             id={'type': 'save_splash', 'index': index},
                             style={'width': '100%', 'marginBottom': '5px'}),
                         html.Div(id={'type': 'splash_response', 'index': index})
