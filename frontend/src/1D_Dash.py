@@ -858,7 +858,7 @@ def update_splash_data(n_clicks):
         datetime.datetime.strptime(uid, '%Y-%m-%d %H:%M:%S')
         response = splash_POST_call(uri, tags2add)
     except ValueError:
-        splash_data = splash_GET_call(None, None, 0, 1, uid)
+        splash_data = splash_GET_call(uri, None, 0, 1)
         splash_tags = splash_data[0]['tags']
         splash_tags_uid = [tag['uid'] for tag in splash_tags]
         tags2remove = np.setdiff1d(splash_tags_uid, current_tag_uid)
@@ -919,4 +919,4 @@ targeted_callback(
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True, host='0.0.0.0')
+    app.run_server(debug=True, host='0.0.0.0', port=8054)
