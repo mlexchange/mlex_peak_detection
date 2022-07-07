@@ -1,0 +1,74 @@
+version: '3'
+
+services:
+  front-end:
+    restart: "unless-stopped"
+    container_name: "peak-fronty"
+    build:
+      context: 'frontend/'
+      dockerfile: 'docker/Dockerfile'
+    command: 'python src/1D_Dash.py'
+    environment:
+      DATA_DIR: "${COMPOSE_PROJECT_NAME}_data-m"
+      UPLOAD_FOLDER_ROOT: "data"
+    volumes:
+      - ./data:/app/work/data
+      - ./frontend/src:/app/work/src
+      - ./frontend/tmp:/app/tmp
+    ports:
+      - '8054:8054'
+#    networks:
+#      - computing_api_default
+
+#  automatic-tags:
+#    container_name: "autotag"
+#    user: "${UID}:${GID}"
+#    build:
+#      context: 'automatic_detection/'
+#      dockerfile: 'docker/Dockerfile'
+#    command: 'python block_detection.py data data/results'
+#    depends_on:
+#      - "splash"
+#    volumes:
+#      - ./automatic_detection:/app/work
+#      - ./data:/app/work/data
+      
+  mongo_mlex:
+    image: mongo
+    restart: always
+    container_name: "mongodb_mlex"
+    working_dir: "${PWD}/mongodbdata/"
+    volumes:
+      - "./mongodbdata/:/data/db"
+#    networks:
+#      - computing_api_default
+
+  splash:
+    container_name: "splash"
+    build:
+      context: 'splash-ml/'
+      dockerfile: 'Dockerfile'
+    depends_on:
+      - "mongo_mlex"
+    ports:
+      - '8087:80'
+    environment:
+       APP_MODULE: "tagging.api:app"
+       LOGLEVEL: DEBUG
+       MONGO_DB_URI: mongodb://mongodb_mlex:27017/tagging
+       MAX_WORKERS: 1
+#    networks:
+#      - computing_api_default
+
+volumes: # create named dir and link it to the data folder, so all services can 
+         # use
+  data-m:
+    driver: local
+    driver_opts:
+      type: "none"
+      device: "./frontend/data/"
+      o: "bind"
+
+#networks:
+#  computing_api_default:
+#    external: true
