@@ -25,6 +25,7 @@ import re
 
 import matplotlib.pyplot as plt
 
+'''
 import pyFAI
 from pyFAI.multi_geometry import MultiGeometry
 from pyFAI.azimuthalIntegrator import AzimuthalIntegrator as AzInt
@@ -604,6 +605,8 @@ def fit_peak(x: np.ndarray=np.ones(5,), y: np.ndarray=np.ones(5,),
         derivedParams[f'curve {j}']['x0'] = curveParams[f'curve {j}']['x0']
     
     return curveParams, derivedParams, resid
+
+'''
 
 
 def bayesian_block_finder(x: np.ndarray=np.ones(5,), y: np.ndarray=np.ones(5,),):
