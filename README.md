@@ -19,6 +19,8 @@ First, let's install docker:
 * Next go into the 1D XRD dir
 * type `docker-compose up` into your terminal (on more recent [versions](https://docs.docker.com/compose/#compose-v2-and-the-new-docker-compose-command) of the Docker desktop, `compose` is part of the docker CLI, meaning that the command is now `docker compose up`)
 
+For AMR64 support, please type `docker-compose -f docker-compose-arm64.yml up` instead of `docker-compose up`.
+
 Next, open up the dash app or splash-ml API:
 
 * Dash app: http://0.0.0.0:8050/
