@@ -17,8 +17,8 @@ services:
       - ./frontend/tmp:/app/tmp
     ports:
       - '8054:8054'
-    networks:
-      - computing_api_default
+#    networks:
+#      - computing_api_default
 
 #  automatic-tags:
 #    container_name: "autotag"
@@ -40,8 +40,8 @@ services:
     working_dir: "/mongodbdata/"
     volumes:
       - "/mongodbdata/:/data/db"
-    networks:
-      - computing_api_default
+#    networks:
+#      - computing_api_default
 
   splash:
     container_name: "splash"
@@ -57,8 +57,8 @@ services:
        LOGLEVEL: DEBUG
        MONGO_DB_URI: mongodb://mongodb_mlex:27017/tagging
        MAX_WORKERS: 1
-    networks:
-      - computing_api_default
+#    networks:
+#      - computing_api_default
 
 volumes: # create named dir and link it to the data folder, so all services can 
          # use
@@ -69,6 +69,6 @@ volumes: # create named dir and link it to the data folder, so all services can
       device: "./frontend/data/"
       o: "bind"
 
-networks:
-  computing_api_default:
-    external: true
+#networks:
+#  computing_api_default:
+#    external: true
