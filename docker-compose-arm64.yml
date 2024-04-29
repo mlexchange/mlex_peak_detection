@@ -37,9 +37,9 @@ services:
     image: mongo
     restart: always
     container_name: "mongodb_mlex"
-    working_dir: "/mongodbdata/"
+    working_dir: "${PWD}/mongodbdata/"
     volumes:
-      - "/mongodbdata/:/data/db"
+      - "./mongodbdata/:/data/db"
 #    networks:
 #      - computing_api_default
 

@@ -1,6 +1,8 @@
 # Directories
 data/*
 mongodbdata/*
+splash*
+*.DS_Store
 .env
 
 # Byte-compiled / optimized / DLL files
@@ -134,7 +136,7 @@ dmypy.json
 
 # Ignore data files
 *.csv
-*.png
+# *.png
 *.jpg
 *.xdi
 *.npy

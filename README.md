@@ -1,4 +1,4 @@
-# Docker: 1D_XRD app
+# Peak Detection in 1-D XRD data
 
 ## Description
 This docker compose framework automatically finds the peaks within a group of 1D XRD data files and runs a dash app for more precise peak detection.
@@ -18,6 +18,8 @@ First, let's install docker:
 * https://docs.docker.com/engine/install/
 * Next go into the 1D XRD dir
 * type `docker-compose up` into your terminal (on more recent [versions](https://docs.docker.com/compose/#compose-v2-and-the-new-docker-compose-command) of the Docker desktop, `compose` is part of the docker CLI, meaning that the command is now `docker compose up`)
+
+For AMR64 support, please type `docker-compose -f docker-compose-arm64.yml up` instead of `docker-compose up`.
 
 Next, open up the dash app or splash-ml API:
 
