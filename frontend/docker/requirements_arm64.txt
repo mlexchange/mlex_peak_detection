@@ -17,6 +17,6 @@ pybase64==1.2.0
 requests==2.26.0
 scipy==1.7.1
 typing==3.7.4.3
-urllib3==1.26.7
+urllib3==1.26.19
 tiled==0.1.0a37
 werkzeug==2.0.3
